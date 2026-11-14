@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+dist/
+native/build/
+native/third_party/JUCE/
+native/third_party/elementary/
+*.vst3/
+*.component/

@@ -3,11 +3,25 @@ project(LayerForge VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build universal macOS binary" FORCE)
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build universal macOS binary" FORCE)
+endif()
 
 # Add JUCE & Elementary C++ SDK submodules (bootstrapped via scripts/setup.sh)
 add_subdirectory(third_party/JUCE)
 add_subdirectory(third_party/elementary/runtime)
+
+set(LAYERFORGE_PLUGIN_FORMATS VST3)
+set(LAYERFORGE_PLATFORM_PLUGIN_OPTIONS)
+set(LAYERFORGE_PLATFORM_COMPILE_DEFINITIONS)
+if(APPLE)
+    list(APPEND LAYERFORGE_PLUGIN_FORMATS AU)
+elseif(WIN32)
+    list(APPEND LAYERFORGE_PLATFORM_PLUGIN_OPTIONS NEEDS_WEBVIEW2 TRUE)
+    list(APPEND LAYERFORGE_PLATFORM_COMPILE_DEFINITIONS
+        JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
+    )
+endif()
 
 juce_add_plugin(LayerForge
     COMPANY_NAME "LayerForgeAudio"
@@ -18,11 +32,12 @@ juce_add_plugin(LayerForge
     COPY_PLUGIN_AFTER_BUILD FALSE
     PLUGIN_MANUFACTURER_CODE Lfrg
     PLUGIN_CODE Lf01
-    FORMATS AU VST3
+    FORMATS ${LAYERFORGE_PLUGIN_FORMATS}
     PRODUCT_NAME "LayerForge"
+    ${LAYERFORGE_PLATFORM_PLUGIN_OPTIONS}
 )
 
-# Bundle built Vite web UI assets into the plugin binary for commercial distribution
+# Bundle the production UI assets into the plug-in.
 file(GLOB_RECURSE UI_DIST_FILES "${CMAKE_CURRENT_SOURCE_DIR}/../dist/*")
 if(UI_DIST_FILES)
     juce_add_binary_data(LayerForgeUIAssets SOURCES ${UI_DIST_FILES})
@@ -37,10 +52,17 @@ target_sources(LayerForge PRIVATE
     PluginEditor.h
 )
 
+if(APPLE)
+    target_sources(LayerForge PRIVATE PluginClipboard_mac.mm PluginClipboard.h)
+elseif(WIN32)
+    target_sources(LayerForge PRIVATE PluginClipboard_win.cpp PluginClipboard.h)
+endif()
+
 target_compile_definitions(LayerForge PUBLIC
     JUCE_WEB_BROWSER=1
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
+    ${LAYERFORGE_PLATFORM_COMPILE_DEFINITIONS}
 )
 
 target_link_libraries(LayerForge PRIVATE

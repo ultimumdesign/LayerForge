@@ -103,10 +103,24 @@ CMakeFiles/LayerForge.dir/PluginEditor.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/LayerForge.dir/PluginEditor.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/ayatko/Documents/LayerForge/native/PluginEditor.cpp -o CMakeFiles/LayerForge.dir/PluginEditor.cpp.s
 
+CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o: CMakeFiles/LayerForge.dir/flags.make
+CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o: /Users/ayatko/Documents/LayerForge/native/PluginClipboard_mac.mm
+CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o -MF CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o.d -o CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o -c /Users/ayatko/Documents/LayerForge/native/PluginClipboard_mac.mm
+
+CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/ayatko/Documents/LayerForge/native/PluginClipboard_mac.mm > CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.i
+
+CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/ayatko/Documents/LayerForge/native/PluginClipboard_mac.mm -o CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.s
+
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.i: cmake_force
@@ -120,7 +134,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_au
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.i: cmake_force
@@ -134,7 +148,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_au
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.i: cmake_force
@@ -148,7 +162,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_au
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_6) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra.mm.i: cmake_force
@@ -162,7 +176,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_extra/juce_gui_extra
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_7) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basics.mm.i: cmake_force
@@ -176,7 +190,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_gui_basics/juce_gui_basi
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Harfbuzz.cpp.i: cmake_force
@@ -190,7 +204,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_H
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_9) "Building C object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building C object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o"
 	/usr/bin/cc $(C_DEFINES) $(C_INCLUDES) $(C_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.i: cmake_force
@@ -204,7 +218,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_S
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_10) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.mm.i: cmake_force
@@ -218,7 +232,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics.m
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_events/juce_events.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_11) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_events/juce_events.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.i: cmake_force
@@ -232,7 +246,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_events/juce_events.mm.s:
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_12) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_CompilationTime.cpp.i: cmake_force
@@ -246,7 +260,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core_Compilati
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_core/juce_core.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_13) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_core/juce_core.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.i: cmake_force
@@ -260,7 +274,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_core/juce_core.mm.s: cma
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_14) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_data_structures.mm.i: cmake_force
@@ -274,7 +288,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_data_structures/juce_dat
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_15) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.i: cmake_force
@@ -288,7 +302,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_16) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_utils.mm.i: cmake_force
@@ -302,7 +316,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_utils/juce_audio_u
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio_formats.mm.i: cmake_force
@@ -316,7 +330,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_formats/juce_audio
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o: CMakeFiles/LayerForge.dir/flags.make
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o: /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o: CMakeFiles/LayerForge.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o -MF CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o.d -o CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o -c /Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm
 
 CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.i: cmake_force
@@ -331,6 +345,7 @@ CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio
 LayerForge_OBJECTS = \
 "CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o" \
 "CMakeFiles/LayerForge.dir/PluginEditor.cpp.o" \
+"CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o" \
 "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o" \
 "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o" \
 "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o" \
@@ -353,6 +368,7 @@ LayerForge_EXTERNAL_OBJECTS =
 
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/PluginEditor.cpp.o
+LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_ara.cpp.o
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors_lv2_libs.cpp.o
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_processors/juce_audio_processors.mm.o
@@ -371,7 +387,7 @@ LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.d
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_devices/juce_audio_devices.mm.o
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/build.make
 LayerForge_artefacts/Release/libLayerForge_SharedCode.a: CMakeFiles/LayerForge.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Linking CXX static library LayerForge_artefacts/Release/libLayerForge_SharedCode.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Linking CXX static library LayerForge_artefacts/Release/libLayerForge_SharedCode.a"
 	$(CMAKE_COMMAND) -P CMakeFiles/LayerForge.dir/cmake_clean_target.cmake
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/LayerForge.dir/link.txt --verbose=$(VERBOSE)
 

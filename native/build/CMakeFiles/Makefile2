@@ -207,12 +207,12 @@ third_party/elementary/runtime/clean:
 CMakeFiles/LayerForge.dir/all: CMakeFiles/LayerForgeUIAssets.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19 "Built target LayerForge"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 "Built target LayerForge"
 .PHONY : CMakeFiles/LayerForge.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/LayerForge.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 24
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 25
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/LayerForge.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 0
 .PHONY : CMakeFiles/LayerForge.dir/rule
@@ -224,7 +224,7 @@ LayerForge: CMakeFiles/LayerForge.dir/rule
 # codegen rule for target.
 CMakeFiles/LayerForge.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19 "Finished codegen for target LayerForge"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 "Finished codegen for target LayerForge"
 .PHONY : CMakeFiles/LayerForge.dir/codegen
 
 # clean rule for target.
@@ -245,7 +245,7 @@ CMakeFiles/LayerForge_All.dir/all: CMakeFiles/LayerForge_VST3.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/LayerForge_All.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 52
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 53
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/LayerForge_All.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 0
 .PHONY : CMakeFiles/LayerForge_All.dir/rule
@@ -274,12 +274,12 @@ CMakeFiles/LayerForge_AU.dir/all: CMakeFiles/LayerForge.dir/all
 CMakeFiles/LayerForge_AU.dir/all: CMakeFiles/LayerForgeUIAssets.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_AU.dir/build.make CMakeFiles/LayerForge_AU.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_AU.dir/build.make CMakeFiles/LayerForge_AU.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37 "Built target LayerForge_AU"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=26,27,28,29,30,31,32,33,34,35,36,37,38 "Built target LayerForge_AU"
 .PHONY : CMakeFiles/LayerForge_AU.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/LayerForge_AU.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 37
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 38
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/LayerForge_AU.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 0
 .PHONY : CMakeFiles/LayerForge_AU.dir/rule
@@ -291,7 +291,7 @@ LayerForge_AU: CMakeFiles/LayerForge_AU.dir/rule
 # codegen rule for target.
 CMakeFiles/LayerForge_AU.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_AU.dir/build.make CMakeFiles/LayerForge_AU.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37 "Finished codegen for target LayerForge_AU"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=26,27,28,29,30,31,32,33,34,35,36,37,38 "Finished codegen for target LayerForge_AU"
 .PHONY : CMakeFiles/LayerForge_AU.dir/codegen
 
 # clean rule for target.
@@ -303,17 +303,17 @@ CMakeFiles/LayerForge_AU.dir/clean:
 # Target rules for target CMakeFiles/LayerForge_VST3.dir
 
 # All Build rule for target.
-CMakeFiles/LayerForge_VST3.dir/all: CMakeFiles/juce_vst3_helper.dir/all
 CMakeFiles/LayerForge_VST3.dir/all: CMakeFiles/LayerForge.dir/all
+CMakeFiles/LayerForge_VST3.dir/all: CMakeFiles/juce_vst3_helper.dir/all
 CMakeFiles/LayerForge_VST3.dir/all: CMakeFiles/LayerForgeUIAssets.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_VST3.dir/build.make CMakeFiles/LayerForge_VST3.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_VST3.dir/build.make CMakeFiles/LayerForge_VST3.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=38,39,40,41,42,43,44,45,46,47,48,49,50 "Built target LayerForge_VST3"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=39,40,41,42,43,44,45,46,47,48,49,50,51 "Built target LayerForge_VST3"
 .PHONY : CMakeFiles/LayerForge_VST3.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/LayerForge_VST3.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 39
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 40
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/LayerForge_VST3.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/ayatko/Documents/LayerForge/native/build/CMakeFiles 0
 .PHONY : CMakeFiles/LayerForge_VST3.dir/rule
@@ -325,7 +325,7 @@ LayerForge_VST3: CMakeFiles/LayerForge_VST3.dir/rule
 # codegen rule for target.
 CMakeFiles/LayerForge_VST3.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge_VST3.dir/build.make CMakeFiles/LayerForge_VST3.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=38,39,40,41,42,43,44,45,46,47,48,49,50 "Finished codegen for target LayerForge_VST3"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=39,40,41,42,43,44,45,46,47,48,49,50,51 "Finished codegen for target LayerForge_VST3"
 .PHONY : CMakeFiles/LayerForge_VST3.dir/codegen
 
 # clean rule for target.
@@ -340,7 +340,7 @@ CMakeFiles/LayerForge_VST3.dir/clean:
 CMakeFiles/juce_vst3_helper.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/juce_vst3_helper.dir/build.make CMakeFiles/juce_vst3_helper.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/juce_vst3_helper.dir/build.make CMakeFiles/juce_vst3_helper.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=51,52 "Built target juce_vst3_helper"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=52,53 "Built target juce_vst3_helper"
 .PHONY : CMakeFiles/juce_vst3_helper.dir/all
 
 # Build rule for subdir invocation for target.
@@ -357,7 +357,7 @@ juce_vst3_helper: CMakeFiles/juce_vst3_helper.dir/rule
 # codegen rule for target.
 CMakeFiles/juce_vst3_helper.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/juce_vst3_helper.dir/build.make CMakeFiles/juce_vst3_helper.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=51,52 "Finished codegen for target juce_vst3_helper"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=52,53 "Finished codegen for target juce_vst3_helper"
 .PHONY : CMakeFiles/juce_vst3_helper.dir/codegen
 
 # clean rule for target.
@@ -372,7 +372,7 @@ CMakeFiles/juce_vst3_helper.dir/clean:
 CMakeFiles/LayerForgeUIAssets.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForgeUIAssets.dir/build.make CMakeFiles/LayerForgeUIAssets.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForgeUIAssets.dir/build.make CMakeFiles/LayerForgeUIAssets.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=20,21,22,23,24 "Built target LayerForgeUIAssets"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=21,22,23,24,25 "Built target LayerForgeUIAssets"
 .PHONY : CMakeFiles/LayerForgeUIAssets.dir/all
 
 # Build rule for subdir invocation for target.
@@ -389,7 +389,7 @@ LayerForgeUIAssets: CMakeFiles/LayerForgeUIAssets.dir/rule
 # codegen rule for target.
 CMakeFiles/LayerForgeUIAssets.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForgeUIAssets.dir/build.make CMakeFiles/LayerForgeUIAssets.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=20,21,22,23,24 "Finished codegen for target LayerForgeUIAssets"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=21,22,23,24,25 "Finished codegen for target LayerForgeUIAssets"
 .PHONY : CMakeFiles/LayerForgeUIAssets.dir/codegen
 
 # clean rule for target.

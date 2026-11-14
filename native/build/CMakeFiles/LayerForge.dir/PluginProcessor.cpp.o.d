@@ -1437,4 +1437,5 @@ CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o: \
   /Users/ayatko/Documents/LayerForge/native/third_party/elementary/runtime/elem/JSON.h \
   /Users/ayatko/Documents/LayerForge/native/third_party/elementary/runtime/elem/./deps/json.hpp \
   /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/valarray \
-  /Users/ayatko/Documents/LayerForge/native/PluginEditor.h
+  /Users/ayatko/Documents/LayerForge/native/PluginEditor.h \
+  /Users/ayatko/Documents/LayerForge/native/third_party/elementary/runtime/elem/AudioBufferResource.h

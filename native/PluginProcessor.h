@@ -3,10 +3,20 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <elem/Runtime.h>
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 class LayerForgeAudioProcessor : public juce::AudioProcessor
 {
 public:
+    struct StoredSample
+    {
+        std::string key;
+        std::vector<float> samples;
+        double sampleRate = 44100.0;
+    };
+
     LayerForgeAudioProcessor();
     ~LayerForgeAudioProcessor() override;
 
@@ -21,7 +31,7 @@ public:
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 1.5; }
+    double getTailLengthSeconds() const override { return 4.1; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -32,10 +42,18 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    bool setPatchStateJson(const juce::String& json);
+    juce::String getPatchStateJson() const;
+    void storeSampleResource(std::string key, std::vector<float> samples, double sampleRate);
+    std::vector<StoredSample> getStoredSamples() const;
+
     elem::Runtime<float>* getRuntime() { return runtime.get(); }
     std::function<void(int note, int velocity)> onMidiNoteOn;
 
 private:
+    mutable juce::CriticalSection patchStateLock;
+    juce::String patchStateJson;
+    std::unordered_map<std::string, StoredSample> storedSamples;
     std::unique_ptr<elem::Runtime<float>> runtime;
     juce::AudioBuffer<float> scratchBuffer;
 

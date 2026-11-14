@@ -1,0 +1,151 @@
+name: Build plug-in releases
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+
+      - name: Lint JavaScript and JSX
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Install shell and C++ lint tools
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck clang-format
+
+      - name: Lint shell scripts
+        run: npm run lint:shell
+
+      - name: Check native C++ formatting
+        run: npm run lint:native
+
+  build:
+    name: Build ${{ matrix.platform }} VST3
+    needs: quality
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS universal
+            runner: macos-14
+            asset: LayerForge-macos-universal-vst3.zip
+          - platform: Windows x64
+            runner: windows-2022
+            asset: LayerForge-windows-x64-vst3.zip
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+
+      - name: Build embedded UI
+        run: npm run build:ui
+
+      - name: Fetch native build dependencies
+        shell: bash
+        run: |
+          mkdir -p native/third_party
+          git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git native/third_party/JUCE
+          git clone https://github.com/elemaudio/elementary.git native/third_party/elementary
+          git -C native/third_party/elementary checkout 60e72342d92d18d174d9e20421f0d8070ab05b2a
+          git -C native/third_party/elementary submodule update --init --recursive
+
+      - name: Install WebView2 build SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $packages = "$env:USERPROFILE\AppData\Local\PackageManagement\NuGet\Packages"
+          nuget install Microsoft.Web.WebView2 -Version 1.0.1901.177 -OutputDirectory $packages -NonInteractive
+
+      - name: Configure native plug-in
+        run: cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build VST3
+        run: cmake --build native/build --config Release --target LayerForge_VST3 --parallel 3
+
+      - name: Package macOS VST3
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          plugin="native/build/LayerForge_artefacts/Release/VST3/LayerForge.vst3"
+          test -d "$plugin"
+          codesign --force --deep --sign - "$plugin"
+          ditto -c -k --sequesterRsrc --keepParent "$plugin" "${{ matrix.asset }}"
+
+      - name: Package Windows VST3
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $plugin = "native/build/LayerForge_artefacts/Release/VST3/LayerForge.vst3"
+          if (!(Test-Path $plugin -PathType Container)) {
+            throw "VST3 bundle was not found at $plugin"
+          }
+          Compress-Archive -Path $plugin -DestinationPath "${{ matrix.asset }}" -CompressionLevel Optimal -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: LayerForge-*-vst3.zip
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/*.zip \
+              --title "LayerForge $RELEASE_TAG" \
+              --generate-notes \
+              --latest
+          fi

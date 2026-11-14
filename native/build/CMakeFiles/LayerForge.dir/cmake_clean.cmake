@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o"
+  "CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o.d"
   "CMakeFiles/LayerForge.dir/PluginEditor.cpp.o"
   "CMakeFiles/LayerForge.dir/PluginEditor.cpp.o.d"
   "CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o"

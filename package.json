@@ -2,15 +2,22 @@
   "name": "layerforge-vst3",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
   "description": "LayerForge - Multi-Layer Drum Designer, Transient Shaper & Clipper VST3/AU Instrument",
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "dev": "vite",
+    "lint": "eslint .",
+    "lint:native": "clang-format --dry-run --Werror native/PluginClipboard_win.cpp native/PluginClipboard.h native/PluginClipboard_mac.mm",
+    "lint:shell": "shellcheck scripts/*.sh",
+    "test": "node --test test",
+    "check": "npm run lint && npm test",
     "build:ui": "vite build",
     "build:native": "cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config Release -j",
     "install:vst3": "bash scripts/install-vst3.sh",
     "sign:mac": "codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/VST3/LayerForge.vst3 && codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/Components/LayerForge.component",
-    "build": "npm run build:ui && npm run build:native && npm run sign:mac"
+    "build": "npm run check && npm run build:ui && npm run build:native && npm run sign:mac"
   },
   "dependencies": {
     "@elemaudio/core": "^4.0.1",
@@ -20,7 +27,11 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitejs/plugin-react": "^6.3.0",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
     "vite": "^8.3.8"
   }
 }

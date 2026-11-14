@@ -73,8 +73,8 @@ include CMakeFiles/LayerForgeUIAssets.dir/progress.make
 include CMakeFiles/LayerForgeUIAssets.dir/flags.make
 
 juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/input_file_list
-juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: /Users/ayatko/Documents/LayerForge/dist/assets/index-BM4vbEz5.js
-juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: /Users/ayatko/Documents/LayerForge/dist/assets/index-wn3f7W0M.css
+juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: /Users/ayatko/Documents/LayerForge/dist/assets/index-DaPfKB_e.js
+juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: /Users/ayatko/Documents/LayerForge/dist/assets/index-DqFgmKlg.css
 juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp: /Users/ayatko/Documents/LayerForge/dist/index.html
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold --progress-dir=/Users/ayatko/Documents/LayerForge/native/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Generating juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp, juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData2.cpp, juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData3.cpp, juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData.h"
 	cd /Users/ayatko/Documents/LayerForge/native && /Users/ayatko/Documents/LayerForge/native/build/third_party/JUCE/tools/extras/Build/juceaide/juceaide_artefacts/Debug/juceaide binarydata BinaryData BinaryData.h /Users/ayatko/Documents/LayerForge/native/build/juce_binarydata_LayerForgeUIAssets/JuceLibraryCode /Users/ayatko/Documents/LayerForge/native/build/juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/input_file_list

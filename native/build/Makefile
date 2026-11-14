@@ -259,6 +259,30 @@ install_prep/all: cmake_check_build_system
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 install_prep/all
 .PHONY : install_prep/all
 
+PluginClipboard_mac.o: PluginClipboard_mac.mm.o
+.PHONY : PluginClipboard_mac.o
+
+# target to build an object file
+PluginClipboard_mac.mm.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o
+.PHONY : PluginClipboard_mac.mm.o
+
+PluginClipboard_mac.i: PluginClipboard_mac.mm.i
+.PHONY : PluginClipboard_mac.i
+
+# target to preprocess a source file
+PluginClipboard_mac.mm.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.i
+.PHONY : PluginClipboard_mac.mm.i
+
+PluginClipboard_mac.s: PluginClipboard_mac.mm.s
+.PHONY : PluginClipboard_mac.s
+
+# target to generate assembly for a file
+PluginClipboard_mac.mm.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/LayerForge.dir/build.make CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.s
+.PHONY : PluginClipboard_mac.mm.s
+
 PluginEditor.o: PluginEditor.cpp.o
 .PHONY : PluginEditor.o
 
@@ -1102,6 +1126,9 @@ help:
 	@echo "... LayerForge_AU"
 	@echo "... LayerForge_VST3"
 	@echo "... juce_vst3_helper"
+	@echo "... PluginClipboard_mac.o"
+	@echo "... PluginClipboard_mac.i"
+	@echo "... PluginClipboard_mac.s"
 	@echo "... PluginEditor.o"
 	@echo "... PluginEditor.i"
 	@echo "... PluginEditor.s"

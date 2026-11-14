@@ -8,11 +8,11 @@
 
 namespace BinaryData
 {
-    extern const char*   indexBM4vbEz5_js;
-    const int            indexBM4vbEz5_jsSize = 1234064;
+    extern const char*   indexDaPfKB_e_js;
+    const int            indexDaPfKB_e_jsSize = 1269074;
 
-    extern const char*   indexwn3f7W0M_css;
-    const int            indexwn3f7W0M_cssSize = 4664;
+    extern const char*   indexDqFgmKlg_css;
+    const int            indexDqFgmKlg_cssSize = 13389;
 
     extern const char*   index_html;
     const int            index_htmlSize = 432;

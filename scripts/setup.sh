@@ -12,8 +12,10 @@ if [ ! -d "native/third_party/JUCE" ]; then
 fi
 
 if [ ! -d "native/third_party/elementary" ]; then
-  echo "==> Cloning Elementary Audio C++ Runtime..."
-  git clone --depth 1 --recurse-submodules https://github.com/elemaudio/elementary.git native/third_party/elementary
+  echo "==> Cloning the pinned Elementary Audio C++ Runtime..."
+  git clone https://github.com/elemaudio/elementary.git native/third_party/elementary
+  git -C native/third_party/elementary checkout 60e72342d92d18d174d9e20421f0d8070ab05b2a
+  git -C native/third_party/elementary submodule update --init --recursive
 fi
 
 echo "==> Setup complete! Run 'npm run dev' for browser preview or 'npm run build' to compile VST3/AU."

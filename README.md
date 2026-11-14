@@ -1,6 +1,6 @@
 # LayerForge VST3 / AU
 
-**Multi-Layer Drum Designer, Differential Transient Shaper, Hybrid Clipper & Noise Engine** built with **Elementary Audio**, **React**, and **JUCE 8**.
+**LayerForge** is a multi-layer drum designer with transient shaping, clipping, and a noise engine, built with **Elementary Audio**, **React**, and **JUCE 8**. The project is free software under **GPL-3.0-or-later**.
 
 ## Project Architecture
 
@@ -10,18 +10,19 @@ LayerForge/
 │   ├── parameters.js        # Single source of truth for DAW automation parameters & defaults
 │   ├── nodes.js             # Transient shaper, hybrid soft/hard clipper, SVF filters
 │   └── engine.js            # 3-layer mixer + bandpass noise synth + master bus clipper
-├── src/                     # Hardware-styled dark UI & audio/MIDI host bridge
+├── src/                     # Drum-machine-inspired UI & audio/MIDI host bridge
 │   ├── audio/
 │   │   ├── bridge.js        # Auto-switches between WebAudio/WebMIDI and Native JUCE VST3/AU
 │   │   └── wavExport.js     # Offline 24-bit/44.1kHz stereo WAV renderer
 │   ├── components/
-│   │   ├── ChannelStrip.jsx # Drag-and-drop sample slot + per-channel DSP controls
-│   │   └── RotaryKnob.jsx   # Vertical-drag, Shift-fine-tune, double-click-reset rotary dial
-│   ├── styles/theme.css     # Self-contained dark hardware styling
+│   │   ├── ChannelStrip.jsx # Sample slots, live previews, and per-channel DSP controls
+│   │   ├── RotaryKnob.jsx   # Drag, exact-value entry, and reset controls
+│   │   └── Waveform3DCanvas.jsx
+│   ├── styles/theme.css     # Instrument-panel styling
 │   ├── App.jsx
 │   └── main.jsx
-├── native/                  # Commercial JUCE 8 C++ VST3/AU wrapper
-│   ├── CMakeLists.txt       # Universal macOS (arm64 + x86_64) VST3/AU build + embedded UI assets
+├── native/                  # JUCE 8 VST3 wrapper (macOS and Windows)
+│   ├── CMakeLists.txt       # Platform-specific VST3/AU formats + embedded UI assets
 │   ├── PluginProcessor.*    # Real-time audio buffer & Ableton MIDI Note-On bridge
 │   └── PluginEditor.*       # WKWebView host container
 └── scripts/
@@ -29,30 +30,75 @@ LayerForge/
     └── build-mac.sh         # Builds UI, compiles VST3/AU, installs & signs for Ableton Live
 ```
 
-## Quick Start (macOS + VS Code)
+## Development and installation
 
-1. **Prerequisites:** Install Xcode Command Line Tools (`xcode-select --install`) and CMake (`brew install cmake`).
+1. **Prerequisites:** Install Node.js 22+, CMake 3.22+, Git, and the platform's C++ build tools. On macOS, install Xcode Command Line Tools.
 2. **Bootstrap dependencies:**
    ```bash
    npm run setup
    ```
-3. **Instant Browser Prototype (Hot-Reload):**
+3. **Run the browser preview:**
    ```bash
    npm run dev
    ```
-   Open `http://localhost:5173` to drop WAV files, trigger via Spacebar or MIDI, and download 24-bit WAV hits.
-4. **Compile & Install the VST3 for Ableton Live:**
+   Open `http://localhost:5173` to load WAV files, trigger with Spacebar or MIDI, and export 24-bit WAV hits.
+4. **Install locally on macOS for development:**
    ```bash
    npm run install:vst3
    ```
-   The command prompts for the VST3 folder (default: `~/Library/Audio/Plug-Ins/VST3`), builds the UI and VST3, and installs/signs `LayerForge.vst3` there. Then open Ableton Live → **Settings → Plug-Ins → Rescan** and load **LayerForge** onto a MIDI track.
+   This development script prompts for the VST3 folder (default: `~/Library/Audio/Plug-Ins/VST3`), builds the UI and VST3, and installs/signs `LayerForge.vst3` there. Then open Ableton Live → **Settings → Plug-Ins → Rescan** and load **LayerForge** onto a MIDI track.
+   The editor opens at 1120x620 and can be resized; the interface compacts at shorter heights and reflows at narrower widths.
 
-   To export from the plug-in, click **EXPORT 24-BIT .WAV** to render a WAV, then drag the button labeled **DRAG WAV TO ABLETON** into Live.
+   To export from the plug-in, click **EXPORT 24-BIT .WAV**. The export button stays available to render another WAV. Click **COPY / DRAG WAV** to copy the file to the clipboard, or drag it directly into Live; use **SAVE WAV** to keep a permanent copy. Temporary exports are removed when the plug-in editor closes, with abandoned exports pruned after 30 days.
 
-   To build both VST3 and AU formats without the install prompt, use `npm run build`.
+   Loaded samples and patch settings are stored in the Live project state. The saved project includes decoded mono sample audio, so project files grow with the loaded samples. **EXPORT PRESET** creates a self-contained `.lfpreset` with the patch, embedded sample data, and available source file names/locations; it does not depend on temporary WAV files. Each channel has an adjustable playback trim and sample-relative gain envelope. The sum view offers a DSP-rendered stereo 3D field or a 2D waveform; drag the 3D field to rotate it. Channel previews are responsive estimates. Click a knob value to type an exact number; double-click the knob to reset it.
 
-   For troubleshooting, open **DEBUG** in the plug-in and copy the report. Native diagnostics are also written to `~/Library/Logs/LayerForge/LayerForge.log`; attach that file if the UI is blank or the report shows native errors.
+5. **Build locally:** use `npm run build` on macOS to build VST3 and AU formats. The `npm run install:vst3` development script remains available for local installation.
 
-## Commercial Distribution Checklist (Selling Later)
-- Update `COMPANY_NAME`, `PLUGIN_MANUFACTURER_CODE`, and `PLUGIN_CODE` in `native/CMakeLists.txt`.
-- Replace ad-hoc `codesign` with your **Developer ID Application** certificate and submit the `.pkg` installer to `xcrun notarytool` for Apple notarization.
+   For troubleshooting, open **SYSTEM MENU → DIAGNOSTICS** and copy the report. Native diagnostics are also written to `~/Library/Logs/LayerForge/LayerForge.log` on macOS.
+
+## Platform releases
+
+VST3 bundles are operating-system-specific; the macOS binary does not run on Windows. Push a version tag such as `v0.1.0` to build and publish macOS universal (arm64 + x86_64) and Windows x64 VST3 zip assets to a GitHub Release. Running the workflow manually builds downloadable run artifacts without publishing a release. Windows plug-in builds use WebView2 and require the Microsoft Edge WebView2 Runtime if it is not already installed. Native drag-out of a WAV is macOS-specific; on Windows, save the WAV and drag the saved file into the DAW.
+
+Release builds are not signed with a developer certificate or notarized. macOS may show a Gatekeeper warning for downloaded bundles.
+
+## License
+
+LayerForge is licensed under the GNU General Public License, version 3 or (at your option) any later version. Contributions remain subject to that license. The license requires redistributors of covered works to preserve notices and provide corresponding source under GPL terms; it does not prevent copying that complies with the license.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to use GitHub Issues to propose
+work or request a pull request, along with contribution and validation guidance.
+
+## Plugin Use Guide
+
+### Channel strips
+
+Drop a WAV file onto a channel to load it. **M** mutes that channel; **S** solos it. Rotary controls use vertical drag, Shift-drag for finer adjustment, click the displayed value for exact numeric entry, and double-click the dial to reset.
+
+| Control | What it does |
+|---|---|
+| **PITCH** | Changes playback speed and pitch by up to 24 semitones in either direction. Faster playback shortens the hit; slower playback lengthens it. |
+| **PLAY DLY** | Offsets the sample start by up to 1000 ms. This is timing offset, not an echo or feedback delay. |
+| **Envelope points** | Set sample gain from start to finish. Drag a point to change it, double-click the curve to add a point, or right-click an interior point to remove it. Endpoints stay at the start and end of the sample. |
+| **Trim handle** | Drag the end marker to shorten playback without modifying the source sample. The trim is saved with the patch and applies to playback and WAV export. |
+| **ATTACK / SUSTAIN** | Transient shaping, not envelope times: Attack boosts or reduces the initial transient; Sustain boosts or reduces the slower body. Negative values reduce those parts. |
+| **HPF / LPF** | Apply a high-pass filter followed by a low-pass filter to remove low or high frequencies. |
+| **CLIP DRV / SHAPE** | Drive sets the clipping input level; Shape blends smooth saturation with harder clipping. |
+| **MIX** | Sets the channel's level in the layer sum. |
+
+Pitch, level, sample start, envelopes, and filters are common drum-layering controls. LayerForge's point envelope is its detailed sample-shaping control; transient shaping, per-channel clipping, and playback delay are additional sound-design tools. Start with pitch, envelope, and mix, then use the other controls when you need them.
+
+### Noise engine
+
+The separate noise source can be muted or soloed. **FREQ** sets its band-pass center frequency, **RESO** sets resonance, **DECAY** sets its hit length, **CLIP DRV** adds saturation, and **MIX** sets its level in the sum.
+
+### Master bus
+
+**BUS DRIVE** and **SOFT/HARD** control the final clipper. **CEILING** scales the clipped output level; it is not a separate dynamic limiter.
+
+### Reading the waveforms
+
+Each channel displays a responsive estimate of its processed waveform, including envelope, mix, approximate filter response, transient shaping, and clipping. The DSP-rendered sum is more accurate and includes the channel filters, transient shaping, clipping, noise, and master processing. It can be viewed as a 3D waveform field or 2D waveform. A playhead animates when a note is triggered.

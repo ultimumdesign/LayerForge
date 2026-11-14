@@ -2,6 +2,7 @@
 set -e
 
 echo "==> Building Production Web UI..."
+npm run check
 npm run build:ui
 
 echo "==> Configuring & Building Universal macOS VST3 & AU..."

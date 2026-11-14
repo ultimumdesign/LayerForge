@@ -9,6 +9,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c" "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o" "gcc" "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_graphics/juce_graphics_Sheenbidi.c.o.d"
+  "/Users/ayatko/Documents/LayerForge/native/PluginClipboard_mac.mm" "CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o" "gcc" "CMakeFiles/LayerForge.dir/PluginClipboard_mac.mm.o.d"
   "/Users/ayatko/Documents/LayerForge/native/PluginEditor.cpp" "CMakeFiles/LayerForge.dir/PluginEditor.cpp.o" "gcc" "CMakeFiles/LayerForge.dir/PluginEditor.cpp.o.d"
   "/Users/ayatko/Documents/LayerForge/native/PluginProcessor.cpp" "CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o" "gcc" "CMakeFiles/LayerForge.dir/PluginProcessor.cpp.o.d"
   "/Users/ayatko/Documents/LayerForge/native/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm" "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o" "gcc" "CMakeFiles/LayerForge.dir/third_party/JUCE/modules/juce_audio_basics/juce_audio_basics.mm.o.d"

@@ -48,12 +48,18 @@ export class LayerForgeBridge {
     this.core = null;
     this.audioCtx = null;
     this.vfsBuffers = {};
+    this.vfsSampleRates = {};
     this.onMidiTrigger = null;
     this.onParameterChange = null;
     this.isInitialized = false;
+    this.pluginStateLoaded = !this.isNativePlugin;
+    this.restoredPluginState = null;
+    this.pendingPluginState = null;
+    this.pendingPluginStateRequestId = null;
     this.pendingRender = null;
     this.remapNativeInstructions = createNativeInstructionRemapper();
     this.pendingWavTransfers = new Map();
+    this.pendingClipboardWrites = new Map();
     this.nativeWavReadyListener = ({ key, success, error }) => {
       const pending = this.pendingWavTransfers.get(key);
       if (!pending) return;
@@ -63,7 +69,121 @@ export class LayerForgeBridge {
       if (success) {
         pending.resolve(key);
       } else {
-        pending.reject(new Error(error || 'The native host could not prepare the WAV for dragging.'));
+        pending.reject(new Error(error || 'The native host could not stage the WAV for export.'));
+      }
+    };
+    this.nativeWavClipboardListener = ({ requestId, success, error }) => {
+      const pending = this.pendingClipboardWrites.get(requestId);
+      if (!pending) return;
+
+      window.clearTimeout(pending.timeout);
+      this.pendingClipboardWrites.delete(requestId);
+      if (success) {
+        pending.resolve();
+      } else {
+        pending.reject(new Error(error || 'The native host could not copy the WAV to the clipboard.'));
+      }
+    };
+    this.nativeWavActionStatusListener = (details) => {
+      window.dispatchEvent(new CustomEvent('layerforge:wavActionStatus', { detail: details }));
+    };
+    this.nativePresetStatusListener = (details) => {
+      window.dispatchEvent(new CustomEvent('layerforge:presetStatus', { detail: details }));
+    };
+    this.nativeSampleRestoreBuffers = new Map();
+    this.nativeSampleRestoreListener = (details) => {
+      if (details?.requestId !== this.pendingPluginStateRequestId) return;
+      const { action, key } = details;
+      if (typeof key !== 'string' || !key) return;
+
+      if (action === 'begin') {
+        const { sampleCount, sampleRate } = details;
+        if (
+          !Number.isSafeInteger(sampleCount) ||
+          sampleCount <= 0 ||
+          sampleCount > 0x7fffffff ||
+          !Number.isFinite(sampleRate) ||
+          sampleRate <= 0 ||
+          sampleRate > 768000
+        ) {
+          console.error('[LayerForge] Native patch contains invalid sample metadata.');
+          return;
+        }
+        try {
+          this.nativeSampleRestoreBuffers.set(key, {
+            sampleCount,
+            sampleRate,
+            samples: new Float32Array(sampleCount),
+            received: 0
+          });
+        } catch (error) {
+          console.error('[LayerForge] Could not allocate restored sample memory:', error);
+        }
+        return;
+      }
+
+      const transfer = this.nativeSampleRestoreBuffers.get(key);
+      if (!transfer) return;
+
+      if (action === 'chunk') {
+        const { offset, samples } = details;
+        if (
+          offset !== transfer.received ||
+          !Array.isArray(samples) ||
+          offset + samples.length > transfer.sampleCount
+        ) {
+          this.nativeSampleRestoreBuffers.delete(key);
+          console.error('[LayerForge] Native patch sample data is incomplete or out of order.');
+          return;
+        }
+
+        for (let index = 0; index < samples.length; index += 1) {
+          const value = samples[index];
+          if (!Number.isFinite(value)) {
+            this.nativeSampleRestoreBuffers.delete(key);
+            console.error('[LayerForge] Native patch contains an invalid sample value.');
+            return;
+          }
+          transfer.samples[offset + index] = value;
+        }
+        transfer.received += samples.length;
+        return;
+      }
+
+      if (action === 'end') {
+        if (
+          details.offset !== transfer.sampleCount ||
+          transfer.received !== transfer.sampleCount
+        ) {
+          this.nativeSampleRestoreBuffers.delete(key);
+          console.error('[LayerForge] Native patch sample data ended before completion.');
+          return;
+        }
+        this.vfsBuffers[key] = transfer.samples;
+        this.vfsSampleRates[key] = transfer.sampleRate;
+        this.nativeSampleRestoreBuffers.delete(key);
+      }
+    };
+    this.nativePluginStateListener = ({ requestId, stateJson }) => {
+      if (requestId !== this.pendingPluginStateRequestId || !this.pendingPluginState) return;
+
+      window.clearTimeout(this.pendingPluginState.timeout);
+      const { resolve, reject } = this.pendingPluginState;
+      this.pendingPluginState = null;
+      this.pendingPluginStateRequestId = null;
+      try {
+        const state = stateJson ? JSON.parse(stateJson) : null;
+        const missingSample = state?.layers?.find(
+          (layer) => layer.loaded && (!layer.sampleKey || !this.vfsBuffers[layer.sampleKey])
+        );
+        if (missingSample) {
+          throw new Error(
+            `Saved audio data for "${missingSample.sourceName || missingSample.name || 'a channel'}" is missing or incomplete.`
+          );
+        }
+        resolve(state);
+      } catch (error) {
+        reject(new Error(`Could not restore the saved LayerForge patch: ${error.message}`));
       }
     };
     this.nativeMidiListener = (event) => {
@@ -102,6 +222,28 @@ export class LayerForgeBridge {
       });
       window.addEventListener('layerforge:midi', this.nativeMidiListener);
       window.__JUCE__.backend.addEventListener('layerforgeWavReady', this.nativeWavReadyListener);
+      window.__JUCE__.backend.addEventListener(
+        'layerforgeWavClipboardResult',
+        this.nativeWavClipboardListener
+      );
+      window.__JUCE__.backend.addEventListener(
+        'layerforgeWavActionStatus',
+        this.nativeWavActionStatusListener
+      );
+      window.__JUCE__.backend.addEventListener(
+        'layerforgePresetStatus',
+        this.nativePresetStatusListener
+      );
+      window.__JUCE__.backend.addEventListener(
+        'layerforgeSampleRestore',
+        this.nativeSampleRestoreListener
+      );
+      window.__JUCE__.backend.addEventListener(
+        'layerforgePluginState',
+        this.nativePluginStateListener
+      );
+      this.restoredPluginState = await this.requestNativePluginState();
+      this.pluginStateLoaded = true;
     } else {
       this.audioCtx = new AudioContext();
       this.core = new WebRenderer();
@@ -190,7 +332,8 @@ export class LayerForgeBridge {
       postMessage('sampleTransfer', {
         action: 'begin',
         key: vfsKey,
-        sampleCount: monoData.length
+        sampleCount: monoData.length,
+        sampleRate: audioBuffer.sampleRate
       });
       for (let offset = 0; offset < monoData.length; offset += chunkSize) {
         postMessage('sampleTransfer', {
@@ -206,13 +349,51 @@ export class LayerForgeBridge {
     }
 
     this.vfsBuffers[vfsKey] = monoData;
+    this.vfsSampleRates[vfsKey] = audioBuffer.sampleRate;
 
     return {
       name: file.name.replace(/\.[^/.]+$/, ''),
+      sourceName: file.name,
+      sourceLocation:
+        typeof file.path === 'string' && file.path
+          ? file.path
+          : file.webkitRelativePath || null,
       sampleKey: vfsKey,
       durationSec: audioBuffer.duration,
-      sampleRate: audioBuffer.sampleRate
+      sampleRate: audioBuffer.sampleRate,
+      sampleCount: monoData.length
     };
+  }
+
+  requestNativePluginState() {
+    const requestId = `state_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    this.pendingPluginStateRequestId = requestId;
+
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.pendingPluginState = null;
+        this.pendingPluginStateRequestId = null;
+        reject(new Error('Timed out while restoring the saved LayerForge patch.'));
+      }, 60000);
+      this.pendingPluginState = { resolve, reject, timeout };
+
+      try {
+        window._postMessageToPluginBackend('getPluginState', { requestId });
+      } catch (error) {
+        window.clearTimeout(timeout);
+        this.pendingPluginState = null;
+        this.pendingPluginStateRequestId = null;
+        reject(error);
+      }
+    });
+  }
+
+  saveNativePluginState(state) {
+    const postMessage = window._postMessageToPluginBackend;
+    if (!this.isNativePlugin || typeof postMessage !== 'function') {
+      throw new Error('Native patch-state storage is unavailable.');
+    }
+    postMessage('pluginState', JSON.stringify(state));
   }
 
   async prepareNativeWav(blob, filename) {
@@ -226,7 +407,7 @@ export class LayerForgeBridge {
     const ready = new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         this.pendingWavTransfers.delete(key);
-        reject(new Error('Timed out while preparing the WAV for dragging.'));
+        reject(new Error('Timed out while staging the WAV for export.'));
       }, 15000);
       this.pendingWavTransfers.set(key, { resolve, reject, timeout });
     });
@@ -258,11 +439,62 @@ export class LayerForgeBridge {
     return ready;
   }
 
-  startNativeWavDrag(key) {
+  copyNativeWavToClipboard(key) {
     const postMessage = window._postMessageToPluginBackend;
     if (!this.isNativePlugin || typeof postMessage !== 'function') {
-      throw new Error('Native WAV dragging is unavailable.');
+      return Promise.reject(new Error('Native WAV clipboard export is unavailable.'));
     }
-    postMessage('wavDrag', { key });
+
+    const requestId = `clipboard_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const result = new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.pendingClipboardWrites.delete(requestId);
+        reject(new Error('Timed out while copying the WAV to the clipboard.'));
+      }, 10000);
+      this.pendingClipboardWrites.set(requestId, { resolve, reject, timeout });
+    });
+
+    try {
+      postMessage('wavClipboard', { key, requestId });
+    } catch (error) {
+      const pending = this.pendingClipboardWrites.get(requestId);
+      if (pending) window.clearTimeout(pending.timeout);
+      this.pendingClipboardWrites.delete(requestId);
+      return Promise.reject(error);
+    }
+
+    return result;
+  }
+
+  setNativeWavDragTarget(key, bounds = {}, enabled = true) {
+    const postMessage = window._postMessageToPluginBackend;
+    if (!this.isNativePlugin || typeof postMessage !== 'function') return;
+
+    postMessage('wavDragTarget', { key, enabled, ...bounds });
+  }
+
+  saveNativeWav(key) {
+    const postMessage = window._postMessageToPluginBackend;
+    if (!this.isNativePlugin || typeof postMessage !== 'function') {
+      throw new Error('Native WAV saving is unavailable.');
+    }
+    postMessage('wavSaveAs', { key });
+  }
+
+  exportNativePreset(state) {
+    const postMessage = window._postMessageToPluginBackend;
+    if (!this.isNativePlugin || typeof postMessage !== 'function') {
+      throw new Error('Native preset export is unavailable.');
+    }
+    postMessage('presetExport', JSON.stringify(state));
+  }
+
+  revealNativeWav(key) {
+    const postMessage = window._postMessageToPluginBackend;
+    if (!this.isNativePlugin || typeof postMessage !== 'function') {
+      throw new Error('Native WAV file access is unavailable.');
+    }
+
+    postMessage('wavReveal', { key });
   }
 }

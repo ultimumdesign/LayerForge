@@ -1,7 +1,28 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { RotaryKnob } from './RotaryKnob.jsx';
+import { WaveformViewer } from './WaveformViewer.jsx';
+import { getLayerPreviewPeaks } from '../audio/waveform.js';
 
-export function ChannelStrip({ index, layer, onFileDrop, onChange }) {
+export function ChannelStrip({
+  index,
+  layer,
+  sampleBuffers,
+  sampleRates,
+  playbackId,
+  onFileDrop,
+  onChange
+}) {
+  const samples = layer.sampleKey ? sampleBuffers[layer.sampleKey] : null;
+  const sampleRate = sampleRates[layer.sampleKey] || layer.sampleRate || 44100;
+  const previewPeaks = useMemo(
+    () => getLayerPreviewPeaks(samples, layer, sampleRate),
+    [samples, sampleRate, layer]
+  );
+  const playbackDurationSec = samples?.length
+    ? (samples.length * (layer.trimEnd ?? 1)) /
+      (sampleRate * Math.pow(2, layer.pitch / 12))
+    : 0;
+
   const handleDrop = (e) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
@@ -48,6 +69,25 @@ export function ChannelStrip({ index, layer, onFileDrop, onChange }) {
         />
       </label>
 
+      <WaveformViewer
+        title={`CH 0${index + 1}`}
+        samples={samples}
+        sampleRate={sampleRate}
+        peaksOverride={previewPeaks}
+        durationOverride={playbackDurationSec}
+        accent={['#f59e0b', '#22d3ee', '#c084fc'][index]}
+        envelopePoints={layer.envelopePoints}
+        onEnvelopeChange={(envelopePoints) => onChange(index, { envelopePoints })}
+        trimEnd={layer.trimEnd}
+        onTrimChange={layer.loaded
+          ? (trimEnd) => onChange(index, { trimEnd })
+          : undefined}
+        playbackId={playbackId}
+        playheadDurationSec={playbackDurationSec}
+        playheadDelaySec={Math.max(0, layer.delayMs) / 1000}
+        note="Approximate processed view · drag end marker to trim playback"
+      />
+
       <div className="knob-grid">
         <RotaryKnob
           label="PITCH"
@@ -58,6 +98,18 @@ export function ChannelStrip({ index, layer, onFileDrop, onChange }) {
           unit="st"
           decimals={1}
           onChange={(v) => onChange(index, { pitch: v })}
+        />
+        <RotaryKnob
+          label="PLAY DLY"
+          value={layer.delayMs}
+          min={0}
+          max={1000}
+          defaultValue={0}
+          unit="ms"
+          decimals={0}
+          accent="#22d3ee"
+          description="Playback start delay only; no feedback or repeats."
+          onChange={(v) => onChange(index, { delayMs: v })}
         />
         <RotaryKnob
           label="ATTACK"

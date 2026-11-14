@@ -19,16 +19,55 @@ export function buildDrumGraph(state) {
       return el.const({ value: 0 });
     }
 
-    const rateVal = Math.pow(2, layer.pitch / 12);
-    const rate = el.sm(el.const({ key: `l${idx}:rate`, value: rateVal }));
+    const pitchRate = el.sm(
+      el.const({ key: `l${idx}:rate`, value: Math.pow(2, layer.pitch / 12) })
+    );
+    const sourceRate = el.const({ value: layer.sampleRate || 44100 });
+    const rate = el.div(el.mul(pitchRate, sourceRate), el.sr());
 
+    const sampleCount = Math.max(1, layer.sampleCount || 1);
+    const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
+    const playableSampleCount = Math.max(1, Math.round(sampleCount * trimEnd));
     const rawSample = el.sample(
-      { key: `l${idx}:smp`, path: layer.sampleKey, mode: 'trigger' },
+      {
+        key: `l${idx}:smp`,
+        path: layer.sampleKey,
+        mode: 'trigger',
+        stopOffset: sampleCount - playableSampleCount
+      },
       gate,
       rate
     );
 
-    const filtered = channelFilter(`l${idx}`, rawSample, layer.hp, layer.lp);
+    const playheadRate = el.div(
+      el.mul(rate, el.sr()),
+      el.const({ value: playableSampleCount })
+    );
+    const playhead = el.syncphasor(playheadRate, gate);
+    const samplePosition = el.mul(playhead, el.const({ value: playableSampleCount }));
+    const envelopeSequence = layer.envelopePoints.map((point) => ({
+      time: point.time * playableSampleCount,
+      value: point.value
+    }));
+    const envelope = el.sparseq2(
+      {
+        key: `l${idx}:envelope`,
+        seq: envelopeSequence,
+        interpolate: 1
+      },
+      samplePosition
+    );
+    const enveloped = el.mul(rawSample, envelope);
+    const delaySamples = el.ms2samps(
+      el.sm(el.const({ key: `l${idx}:delay`, value: layer.delayMs }))
+    );
+    const delayed = el.delay(
+      { key: `l${idx}:delayLine`, size: 384000 },
+      delaySamples,
+      0,
+      enveloped
+    );
+    const filtered = channelFilter(`l${idx}`, delayed, layer.hp, layer.lp);
     const shaped = transientShaper(`l${idx}`, filtered, layer.attack, layer.sustain);
     const clipped = hybridClipper(`l${idx}`, shaped, layer.clipDrive, layer.clipHardness);
     const mix = el.sm(el.const({ key: `l${idx}:mix`, value: layer.gain }));

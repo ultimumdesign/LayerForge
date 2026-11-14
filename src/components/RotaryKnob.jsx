@@ -1,8 +1,5 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
-/**
- * Hardware-style Rotary Knob with vertical drag, fine-tune (Shift), and double-click reset.
- */
 export function RotaryKnob({
   label,
   value,
@@ -12,12 +9,45 @@ export function RotaryKnob({
   unit = '',
   accent = '#f59e0b',
   decimals = 2,
+  description = 'Drag vertically to adjust | Shift+Drag for fine | Double-click to reset',
   onChange
 }) {
   const dragState = useRef(null);
+  const editActive = useRef(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [editError, setEditError] = useState(false);
 
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const angle = -135 + normalized * 270;
+
+  const beginValueEdit = (event) => {
+    event.stopPropagation();
+    editActive.current = true;
+    setDraft(Number(value).toFixed(decimals));
+    setEditError(false);
+    setEditing(true);
+  };
+
+  const commitValueEdit = (keepEditingOnError = false) => {
+    if (!editActive.current) return;
+    const text = draft.trim();
+    const parsed = text ? Number(text) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      setEditError(keepEditingOnError);
+      if (!keepEditingOnError) {
+        editActive.current = false;
+        setEditing(false);
+        setDraft(Number(value).toFixed(decimals));
+      }
+      return;
+    }
+
+    editActive.current = false;
+    onChange(Math.max(min, Math.min(max, parsed)));
+    setEditing(false);
+    setEditError(false);
+  };
 
   const handlePointerDown = (e) => {
     e.preventDefault();
@@ -55,7 +85,7 @@ export function RotaryKnob({
     <div
       className="knob-unit"
       onDoubleClick={() => onChange(defaultValue)}
-      title="Drag vertically to adjust | Shift+Drag for fine | Double-click to reset"
+      title={`${description} | Click the value to type an exact number`}
     >
       <div
         className="knob-dial"
@@ -96,7 +126,49 @@ export function RotaryKnob({
         </div>
       </div>
       <span className="knob-label">{label}</span>
-      <span className="knob-val">{formatDisplay()}</span>
+      {editing ? (
+        <div className="knob-value-edit">
+          <input
+            autoFocus
+            type="text"
+            inputMode="decimal"
+            value={draft}
+            aria-label={`${label} exact value`}
+            aria-invalid={editError}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setEditError(false);
+            }}
+            onBlur={() => commitValueEdit(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitValueEdit(true);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                editActive.current = false;
+                setEditing(false);
+                setEditError(false);
+                setDraft(Number(value).toFixed(decimals));
+              }
+            }}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+          />
+          {unit && <span>{unit}</span>}
+          {editError && <span className="knob-value-error" role="alert">NUMBER</span>}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="knob-val"
+          onClick={beginValueEdit}
+          onDoubleClick={(event) => event.stopPropagation()}
+          aria-label={`${label}: ${formatDisplay()}. Click to edit the exact value.`}
+        >
+          {formatDisplay()}
+        </button>
+      )}
     </div>
   );
 }
