@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/ayatko/Documents/LayerForge/native/build/third_party/JUCE/tools/cmake_install.cmake",
+		"/Users/ayatko/Documents/LayerForge/native/build/third_party/JUCE/tools/modules/cmake_install.cmake",
+		"/Users/ayatko/Documents/LayerForge/native/build/third_party/JUCE/tools/extras/Build/cmake_install.cmake",
+		"/Users/ayatko/Documents/LayerForge/native/build/third_party/JUCE/tools/extras/Build/juceaide/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libLayerForgeUIAssets.a CMakeFiles/LayerForgeUIAssets.dir/juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp.o CMakeFiles/LayerForgeUIAssets.dir/juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData2.cpp.o CMakeFiles/LayerForgeUIAssets.dir/juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData3.cpp.o
+/usr/bin/ranlib libLayerForgeUIAssets.a

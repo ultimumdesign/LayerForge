@@ -1,0 +1,388 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #09090b;
+  color: #f4f4f5;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.chassis {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px 20px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #27272a;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3f3f46;
+  transition: background 0.05s, box-shadow 0.05s;
+}
+
+.led.led-on {
+  background: #f59e0b;
+  box-shadow: 0 0 12px #f59e0b;
+}
+
+.brand h1 {
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  color: #f59e0b;
+}
+
+.brand span {
+  font-size: 10px;
+  color: #71717a;
+  letter-spacing: 0.1em;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: transform 0.06s, background 0.15s;
+}
+
+.btn-trigger {
+  background: #f59e0b;
+  color: #09090b;
+  padding: 9px 16px;
+}
+
+.btn-trigger:hover {
+  background: #fbbf24;
+}
+
+.btn-trigger.is-active {
+  transform: scale(0.96);
+  background: #fef08a;
+}
+
+.btn-export {
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  padding: 9px 14px;
+}
+
+.btn-export:hover {
+  background: #27272a;
+  border-color: #52525b;
+}
+
+.btn-export-ready {
+  color: #22d3ee;
+  border-color: #22d3ee;
+  cursor: grab;
+}
+
+.btn-export-ready:active {
+  cursor: grabbing;
+}
+
+.btn-debug {
+  background: #18181b;
+  color: #a1a1aa;
+  border: 1px solid #3f3f46;
+  padding: 9px 12px;
+}
+
+.btn-debug:hover {
+  color: #f4f4f5;
+  border-color: #71717a;
+}
+
+.diagnostics-panel {
+  position: fixed;
+  z-index: 20;
+  top: 16px;
+  right: 16px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 16px;
+  color: #e4e4e7;
+  background: #111114;
+  border: 1px solid #52525b;
+  border-radius: 10px;
+  box-shadow: 0 16px 48px #000b;
+}
+
+.diagnostics-header,
+.diagnostics-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.diagnostics-header strong,
+.diagnostics-header span {
+  display: block;
+}
+
+.diagnostics-header strong {
+  color: #f59e0b;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.diagnostics-header span,
+.diagnostics-panel p,
+.diagnostics-actions span {
+  color: #a1a1aa;
+  font-size: 10px;
+}
+
+.diagnostics-panel p {
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+.diagnostics-panel code {
+  color: #22d3ee;
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-panel textarea {
+  width: 100%;
+  height: 220px;
+  padding: 10px;
+  resize: vertical;
+  color: #d4d4d8;
+  background: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  font: 10px/1.5 ui-monospace, Menlo, monospace;
+  user-select: text;
+}
+
+.diagnostics-close {
+  padding: 7px 10px;
+  color: #d4d4d8;
+  background: #27272a;
+}
+
+.diagnostics-actions {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+
+.rack {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+
+.strip {
+  background: #121215;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.strip.is-muted {
+  opacity: 0.5;
+}
+
+.strip-master {
+  border-color: rgba(251, 113, 133, 0.35);
+}
+
+.strip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.strip-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f59e0b;
+  letter-spacing: 0.08em;
+}
+
+.tag-cyan {
+  color: #22d3ee;
+}
+
+.tag-rose {
+  color: #fb7185;
+}
+
+.strip-toggles {
+  display: flex;
+  gap: 4px;
+}
+
+.mini-btn {
+  width: 22px;
+  height: 20px;
+  font-size: 10px;
+  background: #1f1f23;
+  color: #a1a1aa;
+  border: 1px solid #2e2e34;
+  border-radius: 4px;
+}
+
+.mini-btn.active-mute {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.mini-btn.active-solo {
+  background: #eab308;
+  color: #09090b;
+  border-color: #eab308;
+}
+
+.dropzone {
+  border: 1px dashed #3f3f46;
+  border-radius: 7px;
+  padding: 10px 8px;
+  text-align: center;
+  cursor: pointer;
+  background: #0c0c0e;
+  transition: border-color 0.15s;
+}
+
+.dropzone:hover {
+  border-color: #f59e0b;
+}
+
+.dropzone.has-sample {
+  border-style: solid;
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.sample-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f4f4f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sample-sub {
+  font-size: 9px;
+  color: #71717a;
+  margin-top: 3px;
+}
+
+.module-badge {
+  background: #0c0c0e;
+  border: 1px solid #27272a;
+  border-radius: 7px;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.module-badge div {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.module-badge span {
+  font-size: 9px;
+  color: #71717a;
+}
+
+.badge-cyan div {
+  color: #22d3ee;
+}
+
+.badge-rose div {
+  color: #fb7185;
+}
+
+.knob-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 6px;
+}
+
+.master-knobs {
+  grid-template-columns: 1fr;
+}
+
+.knob-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.knob-dial {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  cursor: ns-resize;
+}
+
+.knob-svg {
+  width: 44px;
+  height: 44px;
+}
+
+.knob-cap {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #3f3f46, #18181b);
+  border: 1px solid #52525b;
+}
+
+.knob-indicator {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 2px;
+  height: 7px;
+  margin-left: -1px;
+  border-radius: 1px;
+}
+
+.knob-label {
+  font-size: 9px;
+  color: #a1a1aa;
+  letter-spacing: 0.05em;
+}
+
+.knob-val {
+  font-size: 10px;
+  color: #e4e4e7;
+}
