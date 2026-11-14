@@ -1,4 +1,0 @@
-# Hashes of file build rules.
-92e764543218cfba922375ce3e9aac6d LayerForge_artefacts/JuceLibraryCode/LayerForge_AU/PkgInfo
-83fbebe58ef3dcfb88993854d0ddb25b LayerForge_artefacts/JuceLibraryCode/LayerForge_VST3/PkgInfo
-3ef14db8342966aa648dd456cedf11a2 juce_binarydata_LayerForgeUIAssets/JuceLibraryCode/BinaryData1.cpp

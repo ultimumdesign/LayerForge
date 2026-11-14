@@ -71,6 +71,11 @@ platform build fails, no release job runs. A manual workflow dispatch is useful
 for validating both builders and downloading artifacts without creating a tag
 or release.
 
+The workflow clears `native/build` before configuring CMake. This directory is
+generated output and must remain untracked; committing a local
+`CMakeCache.txt` can make another runner fail with a source/build-directory
+mismatch.
+
 The Windows build uses WebView2 and installs its SDK in the workflow; the
 WebView2 Runtime is still required on Windows systems where it is not already
 installed. macOS downloads are ad-hoc signed, not Developer ID signed or

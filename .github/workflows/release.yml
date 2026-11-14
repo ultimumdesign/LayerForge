@@ -114,6 +114,10 @@ jobs:
           $packages = "$env:USERPROFILE\AppData\Local\PackageManagement\NuGet\Packages"
           nuget install Microsoft.Web.WebView2 -Version 1.0.1901.177 -OutputDirectory $packages -NonInteractive
 
+      - name: Remove stale native build cache
+        shell: bash
+        run: rm -rf native/build
+
       - name: Configure native plug-in
         run: cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release
 
