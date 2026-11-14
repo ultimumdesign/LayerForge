@@ -344,6 +344,7 @@ export default function App() {
       sampleCount: info.sampleCount,
       sampleKey: info.sampleKey,
       loaded: true,
+      trimStart: 0,
       trimEnd: 1
     });
     triggerHit(1.0).catch((error) => {

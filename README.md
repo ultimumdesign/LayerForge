@@ -51,7 +51,7 @@ LayerForge/
 
    To export from the plug-in, click **EXPORT 24-BIT .WAV**. The export button stays available to render another WAV. Click **COPY / DRAG WAV** to copy the file to the clipboard, or drag it directly into Live; use **SAVE WAV** to keep a permanent copy. Temporary exports are removed when the plug-in editor closes, with abandoned exports pruned after 30 days.
 
-   Loaded samples and patch settings are stored in the Live project state. The saved project includes decoded mono sample audio, so project files grow with the loaded samples. **EXPORT PRESET** creates a self-contained `.lfpreset` with the patch, embedded sample data, and available source file names/locations; it does not depend on temporary WAV files. Each channel has an adjustable playback trim and sample-relative gain envelope. The sum view offers a DSP-rendered stereo 3D field or a 2D waveform; drag the 3D field to rotate it. Channel previews are responsive estimates. Click a knob value to type an exact number; double-click the knob to reset it.
+   Loaded samples and patch settings are stored in the Live project state. The saved project includes decoded mono sample audio, so project files grow with the loaded samples. **EXPORT PRESET** creates a self-contained `.lfpreset` with the patch, embedded sample data, and available source file names/locations; it does not depend on temporary WAV files. Each channel has adjustable non-destructive start/end trim handles and a sample-relative gain envelope. The sum view offers a DSP-rendered stereo 3D field or a 2D waveform; drag the 3D field to rotate it. Channel previews are responsive estimates. Click a knob value to type an exact number; double-click the knob to reset it.
 
 5. **Build locally:** use `npm run build` on macOS to build VST3 and AU formats. The `npm run install:vst3` development script remains available for local installation.
 
@@ -83,7 +83,7 @@ Drop a WAV file onto a channel to load it. **M** mutes that channel; **S** solos
 | **PITCH** | Changes playback speed and pitch by up to 24 semitones in either direction. Faster playback shortens the hit; slower playback lengthens it. |
 | **PLAY DLY** | Offsets the sample start by up to 1000 ms. This is timing offset, not an echo or feedback delay. |
 | **Envelope points** | Set sample gain from start to finish. Drag a point to change it, double-click the curve to add a point, or right-click an interior point to remove it. Endpoints stay at the start and end of the sample. |
-| **Trim handle** | Drag the end marker to shorten playback without modifying the source sample. The trim is saved with the patch and applies to playback and WAV export. |
+| **Start/end trim handles** | Drag the colored **IN** and **OUT** markers to choose the sample region that plays, without modifying the source sample. Use **EDIT WAVE** for a larger editor. The selected range is saved with the patch and applies to playback, previews, and WAV export. |
 | **ATTACK / SUSTAIN** | Transient shaping, not envelope times: Attack boosts or reduces the initial transient; Sustain boosts or reduces the slower body. Negative values reduce those parts. |
 | **HPF / LPF** | Apply a high-pass filter followed by a low-pass filter to remove low or high frequencies. |
 | **CLIP DRV / SHAPE** | Drive sets the clipping input level; Shape blends smooth saturation with harder clipping. |

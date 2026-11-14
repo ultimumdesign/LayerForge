@@ -1,10 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { getWaveformPeaks } from '../audio/waveform.js';
+import { MIN_TRIM_RANGE } from '../../dsp/parameters.js';
 import { Waveform3DCanvas } from './Waveform3DCanvas.jsx';
 
 const MAX_ENVELOPE_POINTS = 12;
 const MIN_POINT_SPACING = 0.005;
-const MIN_TRIM_END = 0.01;
 const ENVELOPE_LEFT = 5;
 const ENVELOPE_WIDTH = 490;
 
@@ -12,8 +12,8 @@ function envelopeX(time) {
   return ENVELOPE_LEFT + time * ENVELOPE_WIDTH;
 }
 
-function envelopeTimeX(time, trimEnd) {
-  return envelopeX(time * trimEnd);
+function envelopeTimeX(time, trimStart, trimEnd) {
+  return envelopeX(trimStart + time * (trimEnd - trimStart));
 }
 
 function clamp(value, min, max) {
@@ -29,6 +29,7 @@ export function WaveformViewer({
   accent = '#f59e0b',
   envelopePoints,
   onEnvelopeChange,
+  trimStart = 0,
   trimEnd = 1,
   onTrimChange,
   stereoWaveform,
@@ -39,34 +40,39 @@ export function WaveformViewer({
   playheadDurationSec,
   playheadDelaySec = 0,
   note,
-  compact = false
+  compact = false,
+  onExpand
 }) {
   const svgRef = useRef(null);
   const dragTarget = useRef(null);
   const [displayMode, setDisplayMode] = useState('3d');
-  const safeTrimEnd = clamp(trimEnd, MIN_TRIM_END, 1);
+  const instanceId = useId().replace(/[^a-z0-9_-]/gi, '');
+  const safeTrimEnd = clamp(trimEnd, MIN_TRIM_RANGE, 1);
+  const safeTrimStart = clamp(trimStart, 0, safeTrimEnd - MIN_TRIM_RANGE);
+  const trimSpan = safeTrimEnd - safeTrimStart;
   const peaks = useMemo(
     () => peaksOverride || getWaveformPeaks(samples),
     [peaksOverride, samples]
   );
   const duration =
     durationOverride ??
-    (samples?.length ? (samples.length * safeTrimEnd) / sampleRate : 0);
-  const gradientId = `wave-fill-${title.replace(/[^a-z0-9]/gi, '')}`;
+    (samples?.length ? (samples.length * trimSpan) / sampleRate : 0);
+  const gradientId = `wave-fill-${title.replace(/[^a-z0-9]/gi, '')}-${instanceId}`;
   const envelopePath = useMemo(() => {
     if (!envelopePoints?.length) return '';
     return envelopePoints
       .map((point, index) => {
-        const x = envelopeTimeX(point.time, safeTrimEnd);
+        const x = envelopeTimeX(point.time, safeTrimStart, safeTrimEnd);
         const y = 98 - point.value * 76;
         return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
       })
       .join(' ');
-  }, [envelopePoints, safeTrimEnd]);
+  }, [envelopePoints, safeTrimStart, safeTrimEnd]);
   const envelopeAreaPath = envelopePath
-    ? `M${ENVELOPE_LEFT},98 ${envelopePath.replace(/^M/, 'L')} L${envelopeX(safeTrimEnd)},98 Z`
+    ? `M${envelopeX(safeTrimStart)},98 ${envelopePath.replace(/^M/, 'L')} L${envelopeX(safeTrimEnd)},98 Z`
     : '';
-  const trimX = safeTrimEnd * 500;
+  const trimStartX = envelopeX(safeTrimStart);
+  const trimEndX = envelopeX(safeTrimEnd);
   const show3D = compact && displayMode === '3d';
 
   const getViewPosition = (event) => {
@@ -86,7 +92,7 @@ export function WaveformViewer({
     if (!position) return null;
     return {
       ...position,
-      time: clamp(position.samplePosition / safeTrimEnd, 0, 1)
+      time: clamp((position.samplePosition - safeTrimStart) / trimSpan, 0, 1)
     };
   };
 
@@ -98,11 +104,11 @@ export function WaveformViewer({
     svgRef.current?.setPointerCapture(event.pointerId);
   };
 
-  const beginTrimDrag = (event) => {
+  const beginTrimDrag = (event, edge) => {
     if (!onTrimChange) return;
     event.preventDefault();
     event.stopPropagation();
-    dragTarget.current = { type: 'trim' };
+    dragTarget.current = { type: 'trim', edge };
     svgRef.current?.setPointerCapture(event.pointerId);
   };
 
@@ -112,7 +118,18 @@ export function WaveformViewer({
     const position = getViewPosition(event);
     if (!position) return;
     if (target.type === 'trim') {
-      onTrimChange?.(clamp(position.samplePosition, MIN_TRIM_END, 1));
+      const samplePosition = position.samplePosition;
+      onTrimChange?.(
+        target.edge === 'start'
+          ? {
+              trimStart: clamp(samplePosition, 0, safeTrimEnd - MIN_TRIM_RANGE),
+              trimEnd: safeTrimEnd
+            }
+          : {
+              trimStart: safeTrimStart,
+              trimEnd: clamp(samplePosition, safeTrimStart + MIN_TRIM_RANGE, 1)
+            }
+      );
       return;
     }
 
@@ -120,7 +137,7 @@ export function WaveformViewer({
     const index = target.index;
     const envelopePosition = {
       ...position,
-      time: clamp(position.samplePosition / safeTrimEnd, 0, 1)
+      time: clamp((position.samplePosition - safeTrimStart) / trimSpan, 0, 1)
     };
 
     const previous = envelopePoints[index - 1];
@@ -155,7 +172,11 @@ export function WaveformViewer({
     if (event.target.closest?.('[data-envelope-point], [data-waveform-control]')) return;
 
     const position = getEnvelopePosition(event);
-    if (!position || position.samplePosition > safeTrimEnd) return;
+    if (
+      !position ||
+      position.samplePosition < safeTrimStart ||
+      position.samplePosition > safeTrimEnd
+    ) return;
     const nextIndex = envelopePoints.findIndex((point) => point.time > position.time);
     if (nextIndex < 0) return;
 
@@ -210,29 +231,39 @@ export function WaveformViewer({
     );
   };
 
-  const adjustTrim = (event) => {
+  const adjustTrim = (event, edge) => {
     if (!onTrimChange || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const step = event.shiftKey ? 0.05 : 0.01;
+    const startEdge = edge === 'start';
+    const current = startEdge ? safeTrimStart : safeTrimEnd;
+    const min = startEdge ? 0 : safeTrimStart + MIN_TRIM_RANGE;
+    const max = startEdge ? safeTrimEnd - MIN_TRIM_RANGE : 1;
     const next = event.key === 'Home'
-      ? MIN_TRIM_END
+      ? min
       : event.key === 'End'
-        ? 1
-        : safeTrimEnd + (event.key === 'ArrowRight' ? step : -step);
-    onTrimChange(clamp(next, MIN_TRIM_END, 1));
+        ? max
+        : clamp(current + (event.key === 'ArrowRight' ? step : -step), min, max);
+    onTrimChange(
+      startEdge
+        ? { trimStart: next, trimEnd: safeTrimEnd }
+        : { trimStart: safeTrimStart, trimEnd: next }
+    );
   };
 
   const channelPlayheads = playheads.length
     ? playheads
     : playbackId && duration
-      ? [{
+      ? [
+          {
           id: playbackId,
           color: accent,
-          startFraction: 0,
+          startFraction: safeTrimStart,
           endFraction: safeTrimEnd,
-        delaySec: playheadDelaySec,
-        durationSec: playheadDurationSec || duration
-        }]
+            delaySec: playheadDelaySec,
+            durationSec: playheadDurationSec || duration
+          }
+        ]
       : [];
 
   return (
@@ -250,6 +281,16 @@ export function WaveformViewer({
         <div className="waveform-heading-controls">
           {previewStatus && <span className="waveform-status">{previewStatus}</span>}
           <span className="waveform-duration">{duration ? `${duration.toFixed(2)}s` : 'NO SAMPLE'}</span>
+          {onExpand && (
+            <button
+              type="button"
+              className="waveform-expand-button"
+              onClick={onExpand}
+              aria-label={`Open ${title} waveform editor`}
+            >
+              EDIT WAVE
+            </button>
+          )}
           {compact && (
             <div className="waveform-mode-toggle" role="group" aria-label="Layer sum visualization">
               <button
@@ -325,9 +366,18 @@ export function WaveformViewer({
               })}
               {onTrimChange && (
                 <rect
-                  x={trimX}
+                  x="0"
                   y="0"
-                  width={Math.max(0, 500 - trimX)}
+                  width={trimStartX}
+                  height="112"
+                  className="waveform-trimmed-region"
+                />
+              )}
+              {onTrimChange && (
+                <rect
+                  x={trimEndX}
+                  y="0"
+                  width={Math.max(0, 500 - trimEndX)}
                   height="112"
                   className="waveform-trimmed-region"
                 />
@@ -342,7 +392,7 @@ export function WaveformViewer({
                   key={index}
                   data-envelope-point
                   className={`waveform-envelope-point${index === 0 || index === envelopePoints.length - 1 ? ' is-endpoint' : ''}`}
-                  cx={envelopeTimeX(point.time, safeTrimEnd)}
+                  cx={envelopeTimeX(point.time, safeTrimStart, safeTrimEnd)}
                   cy={98 - point.value * 76}
                   r={index === 0 || index === envelopePoints.length - 1 ? 4 : 4.5}
                   role="slider"
@@ -357,24 +407,55 @@ export function WaveformViewer({
                   onKeyDown={(event) => adjustEnvelopePoint(event, index)}
                 />
               ))}
-              {onTrimChange && (
+              {onTrimChange && [
+                {
+                  edge: 'start',
+                  x: trimStartX,
+                  value: safeTrimStart,
+                  min: 0,
+                  max: safeTrimEnd - MIN_TRIM_RANGE
+                },
+                {
+                  edge: 'end',
+                  x: trimEndX,
+                  value: safeTrimEnd,
+                  min: safeTrimStart + MIN_TRIM_RANGE,
+                  max: 1
+                }
+              ].map(({ edge, x, value, min, max }) => (
                 <g
+                  key={edge}
                   data-waveform-control
-                  className="waveform-trim-handle"
+                  className={`waveform-trim-handle waveform-trim-handle-${edge}`}
                   role="slider"
                   tabIndex={0}
-                  aria-label={`${title} sample end trim`}
-                  aria-valuemin={1}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(safeTrimEnd * 100)}
-                  aria-valuetext={`${Math.round(safeTrimEnd * 100)} percent of sample`}
-                  onPointerDown={beginTrimDrag}
-                  onKeyDown={adjustTrim}
+                  aria-label={`${title} sample ${edge} trim`}
+                  aria-valuemin={Math.round(min * 100)}
+                  aria-valuemax={Math.round(max * 100)}
+                  aria-valuenow={Math.round(value * 100)}
+                  aria-valuetext={`${Math.round(value * 100)} percent of sample`}
+                  onPointerDown={(event) => beginTrimDrag(event, edge)}
+                  onKeyDown={(event) => adjustTrim(event, edge)}
                 >
-                  <line x1={trimX} x2={trimX} y1="7" y2="106" />
-                  <rect x={trimX - 4} y="4" width="8" height="9" rx="2" />
+                  <rect
+                    className="waveform-trim-hit-area"
+                    x={x - 10}
+                    y="0"
+                    width="20"
+                    height="112"
+                  />
+                  <line x1={x} x2={x} y1="5" y2="106" />
+                  <rect className="waveform-trim-marker" x={x - 7} y="3" width="14" height="20" rx="4" />
+                  <text
+                    className="waveform-trim-label"
+                    x={edge === 'start' ? x + 11 : x - 11}
+                    y="16"
+                    textAnchor={edge === 'start' ? 'start' : 'end'}
+                  >
+                    {edge === 'start' ? 'IN' : 'OUT'}
+                  </text>
                 </g>
-              )}
+              ))}
             </svg>
             <div className="waveform-time-labels">
               <span>0:00</span>
@@ -383,7 +464,7 @@ export function WaveformViewer({
             {channelPlayheads.map((playhead, index) => {
               const startFraction = compact
                 ? (duration > 0 ? playhead.delaySec / duration : 0)
-                : 0;
+                : safeTrimStart;
               const endFraction = compact
                 ? (duration > 0 ? playhead.endTimeSec / duration : 1)
                 : safeTrimEnd;
@@ -410,7 +491,7 @@ export function WaveformViewer({
       {(onEnvelopeChange || onTrimChange) && (
         <p className="waveform-note">
           {note ||
-            `${onTrimChange ? 'Drag the end handle to trim playback · ' : ''}${onEnvelopeChange ? 'Drag points for gain · double-click to add · right-click to remove' : ''}`}
+            `${onTrimChange ? 'Drag start/end handles to trim playback · ' : ''}${onEnvelopeChange ? 'Drag points for gain · double-click to add · right-click to remove' : ''}`}
         </p>
       )}
       {!onEnvelopeChange && note && <p className="waveform-note">{note}</p>}

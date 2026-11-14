@@ -1,4 +1,5 @@
 import { el } from '@elemaudio/core';
+import { getSampleTrimRange } from './parameters.js';
 import { transientShaper, hybridClipper, channelFilter } from './nodes.js';
 
 /**
@@ -26,14 +27,15 @@ export function buildDrumGraph(state) {
     const rate = el.div(el.mul(pitchRate, sourceRate), el.sr());
 
     const sampleCount = Math.max(1, layer.sampleCount || 1);
-    const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
-    const playableSampleCount = Math.max(1, Math.round(sampleCount * trimEnd));
+    const trimRange = getSampleTrimRange(sampleCount, layer.trimStart, layer.trimEnd);
+    const playableSampleCount = trimRange.sampleCount;
     const rawSample = el.sample(
       {
         key: `l${idx}:smp`,
         path: layer.sampleKey,
         mode: 'trigger',
-        stopOffset: sampleCount - playableSampleCount
+        startOffset: trimRange.startOffset,
+        stopOffset: trimRange.stopOffset
       },
       gate,
       rate

@@ -409,6 +409,10 @@ button {
   height: 62px;
 }
 
+.waveform-panel:not(.waveform-panel-compact) .waveform-svg {
+  height: 82px;
+}
+
 .waveform-gridline {
   stroke: #d7edc50e;
   stroke-width: 1;
@@ -471,28 +475,122 @@ button {
 }
 
 .waveform-trim-handle {
-  color: #f4b24e;
   cursor: ew-resize;
-  filter: drop-shadow(0 0 4px #f4b24e99);
   outline: none;
+}
+
+.waveform-trim-handle-start {
+  color: #36e0bd;
+}
+
+.waveform-trim-handle-end {
+  color: #ffc15b;
+}
+
+.waveform-trim-hit-area {
+  fill: transparent;
+  pointer-events: all;
 }
 
 .waveform-trim-handle line {
   stroke: currentColor;
-  stroke-width: 1.5;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 3px currentColor);
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
-.waveform-trim-handle rect {
+.waveform-trim-handle .waveform-trim-marker {
   fill: currentColor;
-  stroke: #fff0c1;
-  stroke-width: 0.75;
+  stroke: #fff;
+  stroke-width: 1.25;
+  filter: drop-shadow(0 0 4px currentColor);
 }
 
-.waveform-trim-handle:focus-visible rect {
-  stroke: white;
+.waveform-trim-label {
+  fill: #10150f;
+  font: 700 7px ui-monospace, Menlo, monospace;
+  pointer-events: none;
+}
+
+.waveform-trim-handle:hover .waveform-trim-marker,
+.waveform-trim-handle:focus-visible .waveform-trim-marker {
+  stroke: #fff5c9;
   stroke-width: 2;
+  filter: drop-shadow(0 0 7px currentColor);
+}
+
+.waveform-expand-button {
+  padding: 4px 6px;
+  border: 1px solid #71815d;
+  border-radius: 3px;
+  color: #d7edbd;
+  background: #192018;
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.waveform-expand-button:hover,
+.waveform-expand-button:focus-visible {
+  border-color: #d7edbd;
+  color: #10150f;
+  background: #c8d99a;
+}
+
+.waveform-editor-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #070a09df;
+  backdrop-filter: blur(5px);
+}
+
+.waveform-editor-dialog {
+  width: min(920px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #879568;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #252a23, #10130f);
+  box-shadow: 0 18px 60px #000b, inset 0 1px #ffffff18;
+}
+
+.waveform-editor-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.waveform-editor-dialog-header strong {
+  color: #f0c786;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.waveform-editor-dialog .waveform-svg {
+  height: min(240px, 30vh);
+}
+
+.waveform-editor-close {
+  padding: 6px 9px;
+  border: 1px solid #65715a;
+  border-radius: 4px;
+  color: #d7edbd;
+  background: #171d16;
+  font-size: 8px;
+}
+
+.waveform-editor-close:hover,
+.waveform-editor-close:focus-visible {
+  border-color: #e4c27c;
+  color: #fff0c1;
 }
 
 .waveform-placeholder {
@@ -872,7 +970,7 @@ button {
   }
 
   .waveform-panel:not(.waveform-panel-compact) .waveform-svg {
-    height: 42px;
+    height: 68px;
   }
 
   .waveform-heading {

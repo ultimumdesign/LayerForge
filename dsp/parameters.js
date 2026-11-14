@@ -4,6 +4,7 @@
  */
 
 export const LAYER_COUNT = 3;
+export const MIN_TRIM_RANGE = 0.01;
 
 export const PARAMETER_SCHEMA = [
   // Per-layer parameters
@@ -41,6 +42,7 @@ export function createDefaultLayer(label) {
     sourceLocation: null,
     sampleRate: 44100,
     sampleCount: 0,
+    trimStart: 0,
     trimEnd: 1,
     envelopePoints: [
       { time: 0, value: 1 },
@@ -63,6 +65,35 @@ export function createDefaultLayer(label) {
 function boundedNumber(value, fallback, min, max) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.min(max, value));
+}
+
+export function getSampleTrimRange(sampleCount, trimStart = 0, trimEnd = 1) {
+  const count = Math.max(1, Math.floor(sampleCount || 1));
+  const startOffset = Math.min(count - 1, Math.round(count * boundedNumber(trimStart, 0, 0, 1)));
+  const endSample = Math.max(
+    startOffset + 1,
+    Math.min(count, Math.round(count * boundedNumber(trimEnd, 1, 0, 1)))
+  );
+  return {
+    startOffset,
+    endSample,
+    stopOffset: count - endSample,
+    sampleCount: endSample - startOffset
+  };
+}
+
+function sanitizeTrimRange(trimStart, trimEnd) {
+  let start = boundedNumber(trimStart, 0, 0, 1 - MIN_TRIM_RANGE);
+  let end = boundedNumber(trimEnd, 1, 0, 1);
+  if (end - start < MIN_TRIM_RANGE) {
+    if (start + MIN_TRIM_RANGE <= 1) {
+      end = start + MIN_TRIM_RANGE;
+    } else {
+      start = 1 - MIN_TRIM_RANGE;
+      end = 1;
+    }
+  }
+  return { trimStart: start, trimEnd: end };
 }
 
 function sanitizeEnvelopePoints(points) {
@@ -127,6 +158,7 @@ export function serializePatchState(state) {
       sourceLocation: layer.sourceLocation,
       sampleRate: layer.sampleRate,
       sampleCount: layer.sampleCount,
+      trimStart: layer.trimStart,
       trimEnd: layer.trimEnd,
       envelopePoints: layer.envelopePoints,
       mute: layer.mute,
@@ -166,6 +198,7 @@ export function restorePatchState(saved, sampleBuffers = {}) {
     const envelopePoints =
       sanitizeEnvelopePoints(savedLayer.envelopePoints) ||
       migrateLegacyEnvelope(savedLayer, sampleCount, sampleRate);
+    const trimRange = sanitizeTrimRange(savedLayer.trimStart, savedLayer.trimEnd);
     return {
       ...defaultLayer,
       name: typeof savedLayer.name === 'string' ? savedLayer.name : defaultLayer.name,
@@ -176,7 +209,7 @@ export function restorePatchState(saved, sampleBuffers = {}) {
         typeof savedLayer.sourceLocation === 'string' ? savedLayer.sourceLocation : null,
       sampleRate,
       sampleCount,
-      trimEnd: boundedNumber(savedLayer.trimEnd, 1, 0.01, 1),
+      ...trimRange,
       envelopePoints,
       mute: typeof savedLayer.mute === 'boolean' ? savedLayer.mute : defaultLayer.mute,
       solo: typeof savedLayer.solo === 'boolean' ? savedLayer.solo : defaultLayer.solo,

@@ -1,5 +1,6 @@
 import OfflineRenderer from '@elemaudio/offline-renderer';
 import { buildDrumGraph } from '../../dsp/engine.js';
+import { getSampleTrimRange } from '../../dsp/parameters.js';
 
 const SAMPLE_RATE = 44100;
 const BLOCK_SIZE = 128;
@@ -18,9 +19,9 @@ function getPatchDurationSec(state, vfsBuffers) {
     }
 
     const playbackRate = Math.pow(2, layer.pitch / 12);
-    const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
-    const playableSamples = Math.max(1, Math.round(samples.length * trimEnd));
-    const sampleDuration = playableSamples / ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
+    const trimRange = getSampleTrimRange(samples.length, layer.trimStart, layer.trimEnd);
+    const sampleDuration =
+      trimRange.sampleCount / ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
     return Math.max(0, layer.delayMs) / 1000 + sampleDuration;
   });
   const noiseAudible =

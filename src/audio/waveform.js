@@ -1,3 +1,5 @@
+import { getSampleTrimRange } from '../../dsp/parameters.js';
+
 export function getWaveformPeaks(samples, barCount = 128) {
   if (!samples?.length) return [];
 
@@ -35,27 +37,25 @@ export function getLayerPreviewPeaks(samples, layer, sampleRate = 44100, barCoun
   if (!samples?.length) return [];
 
   const count = Math.min(barCount, samples.length);
-  const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
-  const playableSampleCount = Math.max(1, Math.round(samples.length * trimEnd));
+  const trimRange = getSampleTrimRange(samples.length, layer.trimStart, layer.trimEnd);
   const filteredPeaks = [];
-  const frequencies = [];
 
   for (let bar = 0; bar < count; bar += 1) {
     const start = Math.floor((bar * samples.length) / count);
     const end = Math.max(start + 1, Math.floor(((bar + 1) * samples.length) / count));
-    const trimmedEnd = Math.min(end, playableSampleCount);
-    if (start >= playableSampleCount) {
+    const trimmedStart = Math.max(start, trimRange.startOffset);
+    const trimmedEnd = Math.min(end, trimRange.endSample);
+    if (trimmedStart >= trimmedEnd) {
       filteredPeaks.push(0);
-      frequencies.push(0);
       continue;
     }
 
-    const span = Math.max(1, trimmedEnd - start);
+    const span = trimmedEnd - trimmedStart;
     const step = Math.max(1, Math.ceil(span / 256));
     let peak = 0;
     let crossings = 0;
-    let previous = samples[start];
-    for (let index = start; index < trimmedEnd; index += step) {
+    let previous = samples[trimmedStart];
+    for (let index = trimmedStart; index < trimmedEnd; index += step) {
       const sample = samples[index];
       peak = Math.max(peak, Math.abs(sample));
       if ((sample < 0 && previous >= 0) || (sample >= 0 && previous < 0)) crossings += 1;
@@ -73,7 +73,6 @@ export function getLayerPreviewPeaks(samples, layer, sampleRate = 44100, barCoun
     const lowPassGain = 1 / Math.sqrt(1 + lowPassRatio ** 4);
 
     filteredPeaks.push(peak * highPassGain * lowPassGain);
-    frequencies.push(frequency);
   }
 
   const drive = 10 ** ((layer.clipDrive || 0) / 20);
@@ -87,7 +86,9 @@ export function getLayerPreviewPeaks(samples, layer, sampleRate = 44100, barCoun
       0,
       1 + (layer.attack || 0) * 3 * transient + (layer.sustain || 0) * 1.5 * slow
     );
-    const progress = ((index + 0.5) / count) / trimEnd;
+    const barCenterSample = Math.floor(((index + 0.5) * samples.length) / count);
+    const progress =
+      (barCenterSample - trimRange.startOffset) / Math.max(1, trimRange.sampleCount - 1);
     const envelope = getEnvelopeValueAt(progress, layer.envelopePoints);
     const driven = Math.max(0, peak * dynamics * envelope * layer.gain) * drive;
     const soft = Math.tanh(driven);
@@ -102,10 +103,9 @@ export function getLayerPlaybackInfo(state, sampleBuffers, sampleRates) {
     .map((layer, index) => {
       const samples = layer.sampleKey ? sampleBuffers[layer.sampleKey] : null;
       const sampleRate = sampleRates[layer.sampleKey] || layer.sampleRate || 44100;
-      const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
       const playbackRate = Math.pow(2, layer.pitch / 12);
-      const playableSampleCount = Math.max(1, Math.round((samples?.length || 0) * trimEnd));
-      const durationSec = playableSampleCount / (sampleRate * playbackRate);
+      const trimRange = getSampleTrimRange(samples?.length || 1, layer.trimStart, layer.trimEnd);
+      const durationSec = trimRange.sampleCount / (sampleRate * playbackRate);
       const delaySec = Math.max(0, layer.delayMs) / 1000;
       return {
         index,
@@ -135,7 +135,11 @@ export function getLayerSumPeaks(state, sampleBuffers, sampleRates, barCount = 1
       samples: layer.sampleKey ? sampleBuffers[layer.sampleKey] : null,
       sampleRate: sampleRates[layer.sampleKey] || layer.sampleRate || 44100,
       playbackRate: Math.pow(2, layer.pitch / 12),
-      trimEnd: Math.max(0.01, Math.min(1, layer.trimEnd ?? 1))
+      trimRange: getSampleTrimRange(
+        (layer.sampleKey && sampleBuffers[layer.sampleKey]?.length) || 1,
+        layer.trimStart,
+        layer.trimEnd
+      )
     }))
     .filter(
       ({ layer, samples }) =>
@@ -146,10 +150,8 @@ export function getLayerSumPeaks(state, sampleBuffers, sampleRates, barCount = 1
 
   const durationSec = Math.max(
     ...layers.map(
-      ({ layer, samples, sampleRate, playbackRate }) =>
-        samples.length *
-          Math.max(0.01, Math.min(1, layer.trimEnd ?? 1)) /
-          (sampleRate * playbackRate) +
+      ({ layer, sampleRate, playbackRate, trimRange }) =>
+        trimRange.sampleCount / (sampleRate * playbackRate) +
         Math.max(0, layer.delayMs) / 1000
     )
   );
@@ -170,19 +172,19 @@ export function getLayerSumPeaks(state, sampleBuffers, sampleRates, barCount = 1
     for (let outputIndex = start; outputIndex < end; outputIndex += step) {
       const timeSec = outputIndex / 44100;
       let sum = 0;
-      for (const { layer, samples, sampleRate, playbackRate, trimEnd } of layers) {
+      for (const { layer, samples, sampleRate, playbackRate, trimRange } of layers) {
         const sourceTime = timeSec - Math.max(0, layer.delayMs) / 1000;
         if (sourceTime < 0) continue;
 
-        const sourceIndex = Math.floor(sourceTime * sampleRate * playbackRate);
-        const playableSampleCount = Math.max(1, Math.round(samples.length * trimEnd));
-        if (sourceIndex >= playableSampleCount) continue;
+        const sourceIndex =
+          trimRange.startOffset + Math.floor(sourceTime * sampleRate * playbackRate);
+        if (sourceIndex >= trimRange.endSample) continue;
 
         sum +=
           samples[sourceIndex] *
           layer.gain *
           getEnvelopeValueAt(
-            sourceIndex / Math.max(1, playableSampleCount - 1),
+            (sourceIndex - trimRange.startOffset) / Math.max(1, trimRange.sampleCount - 1),
             layer.envelopePoints
           );
       }

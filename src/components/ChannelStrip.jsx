@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RotaryKnob } from './RotaryKnob.jsx';
 import { WaveformViewer } from './WaveformViewer.jsx';
 import { getLayerPreviewPeaks } from '../audio/waveform.js';
+import { getSampleTrimRange } from '../../dsp/parameters.js';
 
 export function ChannelStrip({
   index,
@@ -14,14 +15,24 @@ export function ChannelStrip({
 }) {
   const samples = layer.sampleKey ? sampleBuffers[layer.sampleKey] : null;
   const sampleRate = sampleRates[layer.sampleKey] || layer.sampleRate || 44100;
+  const [waveformEditorOpen, setWaveformEditorOpen] = useState(false);
   const previewPeaks = useMemo(
     () => getLayerPreviewPeaks(samples, layer, sampleRate),
     [samples, sampleRate, layer]
   );
+  const trimRange = getSampleTrimRange(samples?.length || 1, layer.trimStart, layer.trimEnd);
   const playbackDurationSec = samples?.length
-    ? (samples.length * (layer.trimEnd ?? 1)) /
-      (sampleRate * Math.pow(2, layer.pitch / 12))
+    ? trimRange.sampleCount / (sampleRate * Math.pow(2, layer.pitch / 12))
     : 0;
+
+  useEffect(() => {
+    if (!waveformEditorOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setWaveformEditorOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [waveformEditorOpen]);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -78,15 +89,61 @@ export function ChannelStrip({
         accent={['#f59e0b', '#22d3ee', '#c084fc'][index]}
         envelopePoints={layer.envelopePoints}
         onEnvelopeChange={(envelopePoints) => onChange(index, { envelopePoints })}
+        trimStart={layer.trimStart}
         trimEnd={layer.trimEnd}
         onTrimChange={layer.loaded
-          ? (trimEnd) => onChange(index, { trimEnd })
+          ? (trimRange) => onChange(index, trimRange)
           : undefined}
         playbackId={playbackId}
         playheadDurationSec={playbackDurationSec}
         playheadDelaySec={Math.max(0, layer.delayMs) / 1000}
-        note="Approximate processed view · drag end marker to trim playback"
+        onExpand={layer.loaded ? () => setWaveformEditorOpen(true) : undefined}
+        note="Approximate view · drag IN/OUT markers to trim playback"
       />
+
+      {waveformEditorOpen && (
+        <div
+          className="waveform-editor-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setWaveformEditorOpen(false);
+          }}
+        >
+          <section
+            className="waveform-editor-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`waveform-editor-title-${index}`}
+          >
+            <header className="waveform-editor-dialog-header">
+              <strong id={`waveform-editor-title-${index}`}>CH 0{index + 1} WAVEFORM EDITOR</strong>
+              <button
+                type="button"
+                className="waveform-editor-close"
+                onClick={() => setWaveformEditorOpen(false)}
+              >
+                CLOSE
+              </button>
+            </header>
+            <WaveformViewer
+              title={`CH 0${index + 1}`}
+              samples={samples}
+              sampleRate={sampleRate}
+              peaksOverride={previewPeaks}
+              durationOverride={playbackDurationSec}
+              accent={['#f59e0b', '#22d3ee', '#c084fc'][index]}
+              envelopePoints={layer.envelopePoints}
+              onEnvelopeChange={(envelopePoints) => onChange(index, { envelopePoints })}
+              trimStart={layer.trimStart}
+              trimEnd={layer.trimEnd}
+              onTrimChange={(trimRange) => onChange(index, trimRange)}
+              playbackId={playbackId}
+              playheadDurationSec={playbackDurationSec}
+              playheadDelaySec={Math.max(0, layer.delayMs) / 1000}
+              note="Drag IN/OUT markers to set the playback range · edit envelope points here."
+            />
+          </section>
+        </div>
+      )}
 
       <div className="knob-grid">
         <RotaryKnob
