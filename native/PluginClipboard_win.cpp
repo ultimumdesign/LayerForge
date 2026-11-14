@@ -9,7 +9,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cwchar>
-#include <shellapi.h>
+#include <shlobj.h>
 
 namespace layerforge
 {
