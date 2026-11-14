@@ -3,6 +3,9 @@
 Thanks for helping improve LayerForge. Contributions are welcome under the
 project's GPL-3.0-or-later license.
 
+For the GitHub Actions checks, version PRs, and release process, see
+[RELEASING.md](RELEASING.md).
+
 ## Start with a GitHub Issue
 
 Before starting a change, search the
@@ -26,7 +29,12 @@ to see whether it has already been discussed.
 1. Fork the repository and create a branch for your change.
 2. Keep the change focused, and avoid committing generated output such as
    `dist/` or `native/build/`.
-3. Run the relevant checks:
+3. Use a [Conventional Commit](https://www.conventionalcommits.org/) for each
+   commit and the pull request title. For example, use `fix:` for a patch,
+   `feat:` for a minor release, and `!` or a `BREAKING CHANGE:` footer for a
+   breaking change. Release Please uses these messages to prepare version
+   updates; do not bump `package.json` manually for a normal feature or fix.
+4. Run the relevant checks:
 
    ```sh
    npm ci
@@ -41,9 +49,9 @@ to see whether it has already been discussed.
    requires ShellCheck. Native changes should also be compiled with the
    project's CMake build after running `npm run setup` to fetch native
    dependencies. CI builds the VST3 on macOS and Windows.
-4. Open a pull request against `main`. Describe the change and its validation,
+5. Open a pull request against `main`. Describe the change and its validation,
    and link the discussion with `Closes #123` when it resolves an issue.
-5. Respond to review feedback and keep the pull request focused on the agreed
+6. Respond to review feedback and keep the pull request focused on the agreed
    scope.
 
 ## Contribution expectations

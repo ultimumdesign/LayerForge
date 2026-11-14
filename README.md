@@ -59,7 +59,7 @@ LayerForge/
 
 ## Platform releases
 
-VST3 bundles are operating-system-specific; the macOS binary does not run on Windows. Push a version tag such as `v0.1.0` to build and publish macOS universal (arm64 + x86_64) and Windows x64 VST3 zip assets to a GitHub Release. Running the workflow manually builds downloadable run artifacts without publishing a release. Windows plug-in builds use WebView2 and require the Microsoft Edge WebView2 Runtime if it is not already installed. Native drag-out of a WAV is macOS-specific; on Windows, save the WAV and drag the saved file into the DAW.
+VST3 bundles are operating-system-specific; the macOS binary does not run on Windows. Conventional Commits drive Release Please version PRs. After a release PR is merged, the pipeline reruns tests and builds a macOS universal (arm64 + x86_64) and Windows x64 VST3; only after both builds succeed does it create the version tag and publish both ZIPs to a GitHub Release. Manual workflow dispatches create downloadable artifacts without publishing. See [RELEASING.md](RELEASING.md) for workflow behavior and repository permissions. Windows plug-in builds use WebView2 and require the Microsoft Edge WebView2 Runtime if it is not already installed. Native drag-out of a WAV is macOS-specific; on Windows, save the WAV and drag the saved file into the DAW.
 
 Release builds are not signed with a developer certificate or notarized. macOS may show a Gatekeeper warning for downloaded bundles.
 

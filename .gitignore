@@ -6,3 +6,4 @@ native/third_party/JUCE/
 native/third_party/elementary/
 *.vst3/
 *.component/
+LayerForge-*-vst3.zip

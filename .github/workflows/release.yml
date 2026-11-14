@@ -2,8 +2,11 @@ name: Build plug-in releases
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -16,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -25,6 +30,27 @@ jobs:
 
       - name: Install locked JavaScript dependencies
         run: npm ci
+
+      - name: Validate Conventional Commit pull request
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" | npx commitlint
+          npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA"
+
+      - name: Validate pushed Conventional Commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            npx commitlint --last
+          else
+            npx commitlint --from "$BEFORE_SHA" --to "$GITHUB_SHA"
+          fi
 
       - name: Lint JavaScript and JSX
         run: npm run lint
@@ -122,30 +148,37 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Publish GitHub release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    name: Create release and upload VST3s
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
     steps:
-      - name: Download platform builds
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download successful platform builds
         uses: actions/download-artifact@v4
         with:
           pattern: LayerForge-*-vst3.zip
           path: release-assets
           merge-multiple: true
 
-      - name: Publish release assets
+      - name: Create or update version PR and release
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Upload VST3 downloads to GitHub Release
+        if: steps.release.outputs.tag_name != ''
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber
-          else
-            gh release create "$RELEASE_TAG" release-assets/*.zip \
-              --title "LayerForge $RELEASE_TAG" \
-              --generate-notes \
-              --latest
-          fi
+          gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber

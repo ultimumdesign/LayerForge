@@ -1,0 +1,11 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "layerforge-vst3",
+      "changelog-path": "CHANGELOG.md"
+    }
+  },
+  "include-component-in-tag": false,
+  "tag-separator": ""
+}
