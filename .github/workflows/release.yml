@@ -76,7 +76,7 @@ jobs:
       matrix:
         include:
           - platform: macOS universal
-            runner: macos-14
+            runner: macos-15-intel
             asset: LayerForge-macos-universal-vst3.zip
           - platform: Windows x64
             runner: windows-2022

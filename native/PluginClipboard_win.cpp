@@ -2,13 +2,14 @@
 #define NOMINMAX
 #endif
 
+#include <windows.h>
+
 #include "PluginClipboard.h"
 
 #include <cstddef>
 #include <cstring>
 #include <cwchar>
 #include <shellapi.h>
-#include <windows.h>
 
 namespace layerforge
 {
