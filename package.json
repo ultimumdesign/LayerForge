@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "lint:native": "clang-format --dry-run --Werror native/PluginClipboard_win.cpp native/PluginClipboard.h native/PluginClipboard_mac.mm",
     "lint:shell": "shellcheck scripts/*.sh",
-    "test": "node --test test",
+    "test": "node --test test/waveform.test.js",
     "check": "npm run lint && npm test",
     "build:ui": "vite build",
     "build:native": "cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config Release -j",
