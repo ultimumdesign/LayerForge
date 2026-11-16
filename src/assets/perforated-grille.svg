@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+  <defs>
+    <radialGradient id="rim" cx=".28" cy=".2" r=".92">
+      <stop offset="0" stop-color="#adb5bb"/>
+      <stop offset=".35" stop-color="#596168"/>
+      <stop offset=".72" stop-color="#20262b"/>
+      <stop offset="1" stop-color="#080b0e"/>
+    </radialGradient>
+    <radialGradient id="well" cx=".36" cy=".27" r=".78">
+      <stop offset="0" stop-color="#07090b"/>
+      <stop offset=".72" stop-color="#111519"/>
+      <stop offset="1" stop-color="#30373d"/>
+    </radialGradient>
+    <pattern id="perforation" width="28" height="28" patternUnits="userSpaceOnUse">
+      <g>
+        <circle cx="7" cy="7" r="4.3" fill="#050709" opacity=".8"/>
+        <circle cx="7" cy="6.7" r="3.7" fill="url(#rim)"/>
+        <circle cx="7" cy="6.6" r="2.75" fill="url(#well)"/>
+        <path d="M5.2 5.2a2.5 2.5 0 0 1 2.1-.9" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width=".55" stroke-linecap="round"/>
+      </g>
+      <g>
+        <circle cx="21" cy="21" r="4.3" fill="#050709" opacity=".8"/>
+        <circle cx="21" cy="20.7" r="3.7" fill="url(#rim)"/>
+        <circle cx="21" cy="20.6" r="2.75" fill="url(#well)"/>
+        <path d="M19.2 19.2a2.5 2.5 0 0 1 2.1-.9" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width=".55" stroke-linecap="round"/>
+      </g>
+    </pattern>
+  </defs>
+  <rect width="28" height="28" fill="url(#perforation)"/>
+</svg>

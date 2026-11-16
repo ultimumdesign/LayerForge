@@ -42,6 +42,8 @@ to see whether it has already been discussed.
    npm run lint:shell
    npm run lint:native
    npm test
+   npm run check:release
+   npm audit --audit-level=high
    npm run build:ui
    ```
 
@@ -60,3 +62,31 @@ to see whether it has already been discussed.
 - Include or update focused tests for behavior changes.
 - Do not include secrets, proprietary samples, or unrelated formatting changes.
 - Keep license and copyright notices intact.
+
+## Testing waveform changes
+
+`npm run check` runs lint and the Node test suite. Both `npm run build:ui` and
+`npm run build:native` run these checks first; direct Vite or CMake calls bypass
+them. The tests cover DSP and waveform data, not every host workflow.
+
+When adding or changing waveform capabilities:
+
+1. Add a focused case to `test/waveform.test.js`. Start with
+   `createLoadedPatch` and a short deterministic sample, such as silence with
+   a single impulse; provide the sample under its VFS key.
+2. Assert the feature's actual output: time-bin location, signed min/max,
+   path coordinates, duration or amplitude. Cover relevant edge cases such
+   as silence, boundaries, zoom, short transients and missing data. Confirm
+   display-only changes do not alter audio.
+3. If sound changes, compare samples from `renderWaveformPreview` or
+   `OfflineRenderer` against a known baseline. Do not assume nonlinear effects
+   scale linearly. Cover left and right independently, mono compatibility,
+   stereo-linked processing, and live/offline lane consistency when relevant.
+   For persisted settings, test both a round trip and an older patch without
+   the new field.
+4. Run `npm run check`, and manually inspect the browser or a plugin host when
+   interaction, themes, resizing or real-time behavior is involved. For a
+   bug fix, add a regression case that fails without the fix when practical.
+
+Summarize the commands and manual checks in the pull request; do not claim a
+passing suite proves behavior that was not tested.

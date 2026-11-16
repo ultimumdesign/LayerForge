@@ -47,6 +47,12 @@ if(UI_DIST_FILES)
     target_compile_definitions(LayerForge PRIVATE HAS_EMBEDDED_UI=1)
 endif()
 
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/build/generated/native-graph.js")
+    message(FATAL_ERROR "Native graph generator is missing. Run npm run build:native.")
+endif()
+juce_add_binary_data(LayerForgeNativeGraph NAMESPACE NativeGraphData HEADER_NAME LayerForgeNativeGraph.h SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/build/generated/native-graph.js")
+target_link_libraries(LayerForge PRIVATE LayerForgeNativeGraph)
+
 target_sources(LayerForge PRIVATE
     PluginProcessor.cpp
     PluginProcessor.h
@@ -71,7 +77,17 @@ target_link_libraries(LayerForge PRIVATE
     elem::runtime
     juce::juce_audio_utils
     juce::juce_gui_extra
+    juce::juce_javascript
     juce::juce_recommended_config_flags
     juce::juce_recommended_lto_flags
     juce::juce_recommended_warning_flags
 )
+
+option(LAYERFORGE_BUILD_TESTS "Build native audio tests" OFF)
+if(LAYERFORGE_BUILD_TESTS)
+    juce_add_console_app(LayerForgeNativeTests PRODUCT_NAME "LayerForge Native Tests")
+    target_sources(LayerForgeNativeTests PRIVATE tests/MidiTests.cpp)
+    target_link_libraries(LayerForgeNativeTests PRIVATE
+        LayerForge elem::runtime juce::juce_audio_utils juce::juce_gui_extra
+        juce::juce_javascript juce::juce_recommended_config_flags)
+endif()

@@ -18,18 +18,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install locked JavaScript dependencies
         run: npm ci
+
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=high
+
+      - name: Verify release metadata
+        run: npm run check:release
 
       - name: Validate Conventional Commit pull request
         if: github.event_name == 'pull_request'
@@ -67,9 +73,32 @@ jobs:
       - name: Check native C++ formatting
         run: npm run lint:native
 
+  javascript-security:
+    name: CodeQL JavaScript analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze JavaScript
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+
   build:
     name: Build ${{ matrix.platform }} VST3
-    needs: quality
+    needs: [quality, javascript-security]
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -84,10 +113,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -118,11 +147,22 @@ jobs:
         shell: bash
         run: rm -rf native/build
 
+      - name: Initialize native CodeQL
+        if: runner.os == 'macOS'
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+
       - name: Configure native plug-in
         run: cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release
 
       - name: Build VST3
         run: cmake --build native/build --config Release --target LayerForge_VST3 --parallel 3
+
+      - name: Analyze native C++
+        if: runner.os == 'macOS'
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
 
       - name: Package macOS VST3
         if: runner.os == 'macOS'
@@ -131,7 +171,13 @@ jobs:
           plugin="native/build/LayerForge_artefacts/Release/VST3/LayerForge.vst3"
           test -d "$plugin"
           codesign --force --deep --sign - "$plugin"
+          codesign --verify --deep --strict "$plugin"
+          lipo "$plugin/Contents/MacOS/LayerForge" -verify_arch arm64 x86_64
+          expected_version=$(node -p "require('./package.json').version")
+          actual_version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plugin/Contents/Info.plist")
+          test "$actual_version" = "$expected_version"
           ditto -c -k --sequesterRsrc --keepParent "$plugin" "${{ matrix.asset }}"
+          unzip -t "${{ matrix.asset }}"
 
       - name: Package Windows VST3
         if: runner.os == 'Windows'
@@ -141,10 +187,23 @@ jobs:
           if (!(Test-Path $plugin -PathType Container)) {
             throw "VST3 bundle was not found at $plugin"
           }
+          $binary = Join-Path $plugin "Contents/x86_64-win/LayerForge.vst3"
+          if (!(Test-Path $binary -PathType Leaf) -or (Get-Item $binary).Length -eq 0) {
+            throw "Windows x64 VST3 binary is missing or empty"
+          }
           Compress-Archive -Path $plugin -DestinationPath "${{ matrix.asset }}" -CompressionLevel Optimal -Force
+          $archive = [System.IO.Compression.ZipFile]::OpenRead("${{ matrix.asset }}")
+          try {
+            $entry = $archive.GetEntry("LayerForge.vst3/Contents/x86_64-win/LayerForge.vst3")
+            if ($null -eq $entry -or $entry.Length -eq 0) {
+              throw "Windows VST3 ZIP does not contain its plug-in binary"
+            }
+          } finally {
+            $archive.Dispose()
+          }
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
@@ -152,7 +211,7 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Create release and upload VST3s
+    name: Create draft release and upload VST3s
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
@@ -162,10 +221,10 @@ jobs:
       pull-requests: write
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download successful platform builds
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: LayerForge-*-vst3.zip
           path: release-assets
@@ -173,16 +232,32 @@ jobs:
 
       - name: Create or update version PR and release
         id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Upload VST3 downloads to GitHub Release
+      - name: Verify release matches the built commit
+        if: steps.release.outputs.tag_name != ''
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_commit=$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")
+          if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "::error::Release tag points to $tag_commit, not the built commit $GITHUB_SHA"
+            exit 1
+          fi
+          test -f release-assets/LayerForge-macos-universal-vst3.zip
+          test -f release-assets/LayerForge-windows-x64-vst3.zip
+
+      - name: Upload VST3 downloads to draft GitHub Release
         if: steps.release.outputs.tag_name != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
-          gh release upload "$RELEASE_TAG" release-assets/*.zip --clobber
+          gh release upload "$RELEASE_TAG" \
+            release-assets/LayerForge-macos-universal-vst3.zip \
+            release-assets/LayerForge-windows-x64-vst3.zip --clobber

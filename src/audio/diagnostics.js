@@ -78,7 +78,6 @@ export function createDiagnosticsReport() {
     `Generated: ${new Date().toISOString()}`,
     `Host: ${isNative ? 'JUCE VST3/AU' : 'Browser'}`,
     `User agent: ${navigator.userAgent}`,
-    ...(isNative ? ['Native log: ~/Library/Logs/LayerForge/LayerForge.log'] : []),
     '',
     entries.length ? 'Events:' : 'No frontend errors captured.',
     ...entries.map(({ timestamp, level, message }) => `[${timestamp}] ${level.toUpperCase()}: ${message}`)

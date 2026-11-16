@@ -43,6 +43,28 @@ export function channelFilter(key, sig, hpFreq, lpFreq) {
   const hp = el.sm(el.const({ key: `${key}:hp`, value: hpFreq }));
   const lp = el.sm(el.const({ key: `${key}:lp`, value: lpFreq }));
 
-  const highPassed = el.svf({ mode: 'highpass' }, hp, 0.707, sig);
-  return el.svf({ mode: 'lowpass' }, lp, 0.707, highPassed);
+  const highPassed = hpFreq <= 20 ? sig : el.svf({ mode: 'highpass' }, hp, 0.707, sig);
+  return lpFreq >= 20000 ? highPassed : el.svf({ mode: 'lowpass' }, lp, 0.707, highPassed);
+}
+
+export function saturator(key, sig, driveDb, mixAmount) {
+  const drive = Math.pow(10, driveDb / 20);
+  const wet = el.div(el.tanh(el.mul(el.sm(el.const({ key: `${key}:drive`, value: drive })), sig)), Math.tanh(drive));
+  const mix = el.sm(el.const({ key: `${key}:mix`, value: mixAmount }));
+  return el.add(el.mul(el.sub(1, mix), sig), el.mul(mix, wet));
+}
+
+export function glueCompressor(left, right, { glueThreshold, glueRatio, glueAttack, glueRelease }) {
+  const peak = el.max(el.abs(left), el.abs(right));
+  const attack = el.sm(el.const({ key: 'glue:attack', value: glueAttack }));
+  const release = el.sm(el.const({ key: 'glue:release', value: glueRelease }));
+  const threshold = el.sm(el.const({ key: 'glue:threshold', value: glueThreshold }));
+  const slope = el.sm(el.const({ key: 'glue:slope', value: -(1 - 1 / glueRatio) }));
+  const envelope = el.env(el.tau2pole(attack), el.tau2pole(release), peak);
+  const over = el.sub(el.gain2db(el.max(envelope, 1e-8)), threshold);
+  const knee = 6;
+  const inKnee = el.min(knee, el.max(0, el.add(over, knee / 2)));
+  const compressedOver = el.add(el.div(el.mul(inKnee, inKnee), 2 * knee), el.max(0, el.sub(over, knee / 2)));
+  const gain = el.db2gain(el.mul(compressedOver, slope));
+  return [el.mul(left, gain), el.mul(right, gain)];
 }

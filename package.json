@@ -11,13 +11,16 @@
     "lint": "eslint .",
     "lint:native": "clang-format --dry-run --Werror native/PluginClipboard_win.cpp native/PluginClipboard.h native/PluginClipboard_mac.mm",
     "lint:shell": "shellcheck scripts/*.sh",
-    "test": "node --test test/waveform.test.js",
+    "check:release": "node scripts/check-release.mjs",
+    "test": "node --test test/waveform.test.js test/release.test.js",
     "check": "npm run lint && npm test",
+    "prebuild:ui": "npm run check",
     "build:ui": "vite build",
+    "prebuild:native": "npm run check && node scripts/build-native-graph.mjs",
     "build:native": "cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config Release -j",
     "install:vst3": "bash scripts/install-vst3.sh",
     "sign:mac": "codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/VST3/LayerForge.vst3 && codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/Components/LayerForge.component",
-    "build": "npm run check && npm run build:ui && npm run build:native && npm run sign:mac"
+    "build": "npm run build:ui && npm run build:native"
   },
   "dependencies": {
     "@elemaudio/core": "^4.0.1",
