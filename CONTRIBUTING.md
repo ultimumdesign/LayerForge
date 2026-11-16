@@ -3,60 +3,71 @@
 Thanks for helping improve LayerForge. Contributions are welcome under the
 project's GPL-3.0-or-later license.
 
-For the GitHub Actions checks, version PRs, and release process, see
-[RELEASING.md](RELEASING.md).
+## Before you start
 
-## Start with a GitHub Issue
+Search the [open and closed issues](https://github.com/ultimumdesign/LayerForge/issues)
+for related discussion. For bugs, include reproduction steps, expected
+behavior, and relevant platform details. For larger changes, open an issue to
+agree on the problem and scope before investing in implementation. Small,
+self-contained fixes may go directly to a pull request; link a related issue
+when there is one.
 
-Before starting a change, search the
-[open and closed issues](https://github.com/ultimumdesign/LayerForge/issues)
-to see whether it has already been discussed.
+## Development setup
 
-- For a bug, open an issue with steps to reproduce, expected behavior, and
-  relevant platform details.
-- For a feature or larger change, open an issue to describe the problem and
-  proposed solution. Use the issue to ask whether a maintainer or another
-  contributor can prepare a pull request, or say that you would like to work on
-  one yourself.
-- Wait for discussion on substantial changes before investing in implementation.
-  An issue helps agree on scope; it is not a guarantee that a change will be
-  accepted.
-- For small, self-contained fixes, you may open a pull request directly, but
-  link any related issue.
+Use Node.js 22 or later. For JavaScript and UI work:
 
-## Open a pull request
+```sh
+npm ci
+npm run dev
+```
 
-1. Fork the repository and create a branch for your change.
-2. Keep the change focused, and avoid committing generated output such as
-   `dist/` or `native/build/`.
-3. Use a [Conventional Commit](https://www.conventionalcommits.org/) for each
-   commit and the pull request title. For example, use `fix:` for a patch,
-   `feat:` for a minor release, and `!` or a `BREAKING CHANGE:` footer for a
-   breaking change. Release Please uses these messages to prepare version
-   updates; do not bump `package.json` manually for a normal feature or fix.
-4. Run the relevant checks:
+For native plug-in work, install CMake 3.22 or later, Git, and the platform's
+C++ build tools. On macOS, install Xcode Command Line Tools. Then fetch the
+native dependencies and build the UI and plug-in:
 
-   ```sh
-   npm ci
-   npm run lint
-   npm run lint:shell
-   npm run lint:native
-   npm test
-   npm run build:ui
-   ```
+```sh
+npm run setup
+npm run build:ui
+npm run build:native
+```
 
-   The native formatting check requires `clang-format`, and the shell check
-   requires ShellCheck. Native changes should also be compiled with the
-   project's CMake build after running `npm run setup` to fetch native
-   dependencies. CI builds the VST3 on macOS and Windows.
-5. Open a pull request against `main`. Describe the change and its validation,
-   and link the discussion with `Closes #123` when it resolves an issue.
-6. Respond to review feedback and keep the pull request focused on the agreed
-   scope.
+`npm run setup` installs the JavaScript packages and fetches the pinned JUCE
+and Elementary sources. The native CMake build outputs a VST3 on Windows and
+macOS, and also an AU on macOS. To install a local macOS VST3, run
+`npm run install:vst3`.
 
-## Contribution expectations
+## Checks
 
-- Preserve existing behavior unless the issue explicitly calls for a change.
-- Include or update focused tests for behavior changes.
-- Do not include secrets, proprietary samples, or unrelated formatting changes.
-- Keep license and copyright notices intact.
+Run the checks relevant to your changes before opening a pull request:
+
+```sh
+npm run lint
+npm test
+npm run lint:shell
+npm run lint:native
+npm run build:ui
+```
+
+The test script runs the Node.js waveform tests. Shell linting requires
+ShellCheck; native formatting requires `clang-format`. For native changes,
+also build with `npm run build:native`. CI runs the JavaScript lint and tests,
+shell lint, native formatting check, and VST3 builds on macOS and Windows.
+
+## Pull requests
+
+1. Fork the repository and create a focused branch.
+2. Do not commit generated output such as `dist/` or `native/build/`.
+3. Use a [Conventional Commit](https://www.conventionalcommits.org/) for every
+   commit and the pull request title. For example, `fix:` indicates a patch,
+   `feat:` a minor release, and `!` or a `BREAKING CHANGE:` footer a breaking
+   change. Release Please uses these messages to prepare version updates; do
+   not manually bump `package.json` for an ordinary fix or feature.
+4. Open a pull request against `main`. Describe the change and its validation,
+   and use `Closes #123` when it resolves an issue.
+5. Respond to review feedback and keep the pull request aligned with the
+   agreed scope.
+
+Preserve existing behavior unless a change is intended, add focused tests for
+behavior changes, and do not include secrets, proprietary samples, or
+unrelated formatting changes. Keep license and copyright notices intact.
+Release workflow details are in [RELEASING.md](RELEASING.md).
