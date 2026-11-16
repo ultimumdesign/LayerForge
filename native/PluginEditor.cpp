@@ -466,7 +466,7 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                 const auto type = message->getProperty("type").toString();
                 const auto messagePayload = message->getProperty("payload");
                 if (type == "openUsageGuide") {
-                    if (!juce::URL("https://github.com/ultimumdesign/LayerForge#readme").launchInDefaultBrowser())
+                    if (!juce::URL("https://ultimumdesign.github.io/LayerForge/").launchInDefaultBrowser())
                         reportNativeDiagnostic(webView.get(), "error", "Could not open the usage guide in the browser");
                     return;
                 }
@@ -1329,9 +1329,25 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
     if (presetName.isEmpty())
         presetName = "LayerForge Preset";
 
+    const auto overwriteName = payload != nullptr
+        ? payload->getProperty("overwrite").toString()
+        : juce::String();
     auto destination = directory.getChildFile(presetName + ".lfpreset");
-    for (int suffix = 2; destination.existsAsFile(); ++suffix)
-        destination = directory.getChildFile(presetName + " (" + juce::String(suffix) + ").lfpreset");
+    if (overwriteName.isNotEmpty()) {
+        const auto existing = directory.getChildFile(overwriteName);
+        if (overwriteName.contains("/") || overwriteName.contains("\\")
+            || !overwriteName.endsWithIgnoreCase(".lfpreset")
+            || existing.getParentDirectory() != directory || !existing.existsAsFile()) {
+            const juce::String error = "The preset to replace was not found in the LayerForge preset folder";
+            reportNativeDiagnostic(webView.get(), "error", error);
+            emitPresetStatus(webView.get(), "failed", error);
+            return;
+        }
+        destination = existing;
+    } else {
+        for (int suffix = 2; destination.existsAsFile(); ++suffix)
+            destination = directory.getChildFile(presetName + " (" + juce::String(suffix) + ").lfpreset");
+    }
 
     writePresetFile(destination, stateJson, samples);
 }

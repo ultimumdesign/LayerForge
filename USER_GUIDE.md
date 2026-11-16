@@ -194,9 +194,12 @@ DRY/WET 0. Its downward bar spans 0–36 dB; the numeric reading still shows
 values beyond that range.
 
 **Meters.** **OUTPUT PEAK** (Output Scope) measures post-OUTPUT signal in
-dBFS, holds peaks briefly and flags values at or above 0 dBFS. **LAST PEAK**
+dBFS, holds peaks briefly and flags values at or above 0 dBFS. **HIT PEAK**
 holds the highest peak of the latest audible burst (bursts are separated by
-300 ms below −80 dBFS). These are peak meters, not loudness meters. WAV export
+300 ms below −80 dBFS). The saturation and compressor input/output meters have
+their own HIT PEAK readouts, and the compressor shows MAX THIS HIT, the largest
+wet gain reduction of the latest hit (new bursts are separated by 300 ms of
+under 0.05 dB reduction). These are peak meters, not loudness meters. WAV export
 clips values above 0 dBFS.
 
 ## Output Scope and live trace
@@ -228,21 +231,23 @@ signal cannot be split into independent per-source contributions.
 
 ## Patches, presets and WAV export
 
-- **INITIALIZE PATCH** (SYSTEM MENU) resets settings and clears samples after
+- **INITIALIZE PATCH** (MENU) resets settings and clears samples after
   confirmation. Noise returns to disabled and the theme is kept. Existing
   presets and WAV files are not deleted.
 - **Host projects** embed settings and decoded sample audio, so project size
   grows with sample length. The theme is saved too.
-- **EXPORT PRESET** saves a self-contained `.lfpreset` (patch plus samples), not
-  a rendered WAV. The library folder is:
+- **PRESET** drop-down: choosing a preset loads it immediately. **SAVE** writes
+  the current patch and samples as a new self-contained `.lfpreset` (not a
+  rendered WAV). **SAVE OVER** replaces the selected preset after confirmation;
+  the old contents cannot be recovered. The library folder is:
 
   | OS | Path |
   |---|---|
   | macOS | `~/Library/LayerForge/Presets` |
   | Windows | `%APPDATA%\LayerForge\Presets` |
 
-  Copy presets into that folder and press **REFRESH**; right-click a preset to
-  delete it after confirmation. Names are limited to 100 characters, and
+  Copy presets into that folder and press the refresh button; the trash button
+  deletes the selected preset after confirmation. Names are limited to 100 characters, and
   duplicates get a numeric suffix.
 - **PREPARE WAV** renders the current mix in memory as 24-bit, 44.1 kHz stereo
   (regardless of host sample rate) from a full-velocity hit. Prepare again after
@@ -252,8 +257,13 @@ signal cannot be split into independent per-source contributions.
   WAV is saved; afterwards a file reference can be used. If a DAW rejects it,
   import the saved WAV through its browser. Native drag-out is macOS-only.
 
-The system menu also offers theme selection (three palettes), hover help,
-diagnostics and a link to this guide. LayerForge does not write export caches
+The top bar groups presets, audio (HIT, WAV) and a THEME picker (three
+palettes). The **MENU** offers the usage guide (the published manual), hover
+help, initialize, diagnostics and about.
+
+**Resetting module knobs.** Open a signal-chain module's gear dialog and press
+**RESET KNOBS** to restore its knobs to defaults after confirmation. On/off
+state, signal-chain position, noise trim/envelope, mute and solo are kept. LayerForge does not write export caches
 or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Troubleshooting
@@ -268,7 +278,7 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 | Harsh, gritty highs at high drive | Clippers and the saturator do not oversample; reduce drive or SHAPE, or low-pass the channel. |
 | Plug-in not found | Rescan in the DAW and confirm the build matches the platform (VST3 on macOS/Windows, AU on macOS). |
 | Copy or drag rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
-| Bug report | **SYSTEM MENU → DIAGNOSTICS**, copy the report, and include it. |
+| Bug report | **MENU → DIAGNOSTICS**, copy the report, and include it. |
 
 ## Limitations and validation
 

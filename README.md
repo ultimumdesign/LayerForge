@@ -65,7 +65,7 @@ see [RELEASING.md](RELEASING.md).
 
 ### Troubleshooting
 
-Open **SYSTEM MENU → DIAGNOSTICS** and copy the report when filing an issue.
+Open **MENU → DIAGNOSTICS** and copy the report when filing an issue.
 
 ## Project layout
 

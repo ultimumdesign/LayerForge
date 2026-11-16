@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   createDefaultState,
+  resetBusModuleKnobs,
   resetLayerKnobs,
   restorePatchState,
   serializePatchState,
@@ -21,6 +22,8 @@ import { EffectMeters } from './components/EffectMeters.jsx';
 import { GearIcon } from './components/GearIcon.jsx';
 import { RotaryKnob } from './components/RotaryKnob.jsx';
 import { HelpEnabledContext } from './components/HelpTip.jsx';
+import { PresetBar } from './components/PresetBar.jsx';
+import { SystemMenu } from './components/SystemMenu.jsx';
 import { getUiTheme, UI_THEMES } from './uiThemes.js';
 import { version } from '../package.json';
 
@@ -105,7 +108,7 @@ export function AboutDialog({ onClose }) {
   );
 }
 
-function ModuleSettingsDialog({ title, onClose, children }) {
+function ModuleSettingsDialog({ title, onClose, onReset, children }) {
   const handleKeyDown = (event) => {
     if (event.target.closest('[role="dialog"]') !== event.currentTarget || event.defaultPrevented) return;
     if (event.key === 'Escape') {
@@ -135,7 +138,11 @@ function ModuleSettingsDialog({ title, onClose, children }) {
         aria-label={`${title} settings`} onKeyDown={handleKeyDown}>
         <header className="waveform-editor-dialog-header">
           <strong>{title} SETTINGS</strong>
-          <button type="button" className="waveform-editor-close" onClick={onClose} autoFocus>CLOSE</button>
+          <div className="module-settings-actions">
+            <button type="button" className="waveform-editor-close" onClick={onReset}
+              aria-label={`Reset ${title.toLowerCase()} knobs to defaults`}>RESET KNOBS</button>
+            <button type="button" className="waveform-editor-close" onClick={onClose} autoFocus>CLOSE</button>
+          </div>
         </header>
         {children}
       </section>
@@ -146,7 +153,6 @@ function ModuleSettingsDialog({ title, onClose, children }) {
 export default function App() {
   const bridgeRef = useRef(null);
   const wavActionRef = useRef(null);
-  const utilityMenuRef = useRef(null);
   const moduleSettingsTriggerRef = useRef(null);
   const busDragRef = useRef(null);
   const busGripRefs = useRef({});
@@ -160,7 +166,6 @@ export default function App() {
   const [playbackId, setPlaybackId] = useState(0);
   const [diagnostics, setDiagnostics] = useState(getDiagnostics);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [showUtilityMenu, setShowUtilityMenu] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [moduleSettings, setModuleSettings] = useState(null);
   const [draggingBusModule, setDraggingBusModule] = useState(null);
@@ -186,6 +191,7 @@ export default function App() {
   const [savedPresets, setSavedPresets] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState('');
   const [presetToDelete, setPresetToDelete] = useState(null);
+  const [presetToOverwrite, setPresetToOverwrite] = useState(null);
   const [presetLibraryStatus, setPresetLibraryStatus] = useState('PRESETS LOADING');
   const [presetError, setPresetError] = useState('');
   const [pluginStateLoaded, setPluginStateLoaded] = useState(false);
@@ -238,22 +244,6 @@ export default function App() {
       console.error('[LayerForge] Could not save the UI color theme:', error);
     }
   }, [isNativePlugin, themeId]);
-
-  useEffect(() => {
-    if (!showUtilityMenu) return undefined;
-    const closeOnOutsideClick = (event) => {
-      if (!utilityMenuRef.current?.contains(event.target)) setShowUtilityMenu(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setShowUtilityMenu(false);
-    };
-    window.addEventListener('pointerdown', closeOnOutsideClick);
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      window.removeEventListener('pointerdown', closeOnOutsideClick);
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [showUtilityMenu]);
 
   useEffect(() => {
     if (!showAbout) return undefined;
@@ -360,6 +350,7 @@ export default function App() {
       if (status === 'saved') {
         setSelectedPreset(path || '');
         setShowPresetWarning(false);
+        setPresetToOverwrite(null);
         refreshPresetLibrary();
       } else if (status === 'deleted') {
         setSelectedPreset('');
@@ -757,26 +748,39 @@ export default function App() {
     }
   };
 
-  const confirmPresetExport = () => {
+  const confirmPresetExport = (overwrite) => {
     const bridge = bridgeRef.current;
     if (!bridge) return;
-    setPresetStatus('PREPARING PRESET...');
+    setPresetStatus('SAVING PRESET...');
     setPresetError('');
     try {
       const patch = serializePatchState(state);
       bridge.saveNativePluginState({ ...patch, uiTheme: themeId });
-      bridge.exportNativePreset({ state: patch, name: presetName });
+      bridge.exportNativePreset(overwrite
+        ? { state: patch, name: overwrite.name, overwrite: overwrite.filename }
+        : { state: patch, name: presetName });
     } catch (error) {
-      console.error('[LayerForge] Could not export the preset:', error);
-      setPresetStatus('EXPORT FAILED');
+      console.error('[LayerForge] Could not save the preset:', error);
+      setPresetStatus('PRESET SAVE FAILED');
       setPresetError(error.message);
     }
   };
 
-  const handleLoadPreset = async () => {
+  const handleSelectPreset = async (filename) => {
+    setSelectedPreset(filename);
+    setPresetError('');
     const bridge = bridgeRef.current;
-    const preset = savedPresets.find((item) => item.filename === selectedPreset);
-    if (!bridge || !preset?.available || presetLoadingRef.current) return;
+    const preset = savedPresets.find((item) => item.filename === filename);
+    if (!preset) {
+      setPresetStatus('');
+      return;
+    }
+    if (!preset.available) {
+      setPresetStatus('PRESET UNAVAILABLE');
+      setPresetError(preset.error || '');
+      return;
+    }
+    if (!bridge || presetLoadingRef.current || exporting) return;
 
     presetLoadingRef.current = true;
     setPresetStatus('LOADING PRESET...');
@@ -819,6 +823,8 @@ export default function App() {
         layers: current.layers.map((layer, layerIndex) =>
           layerIndex === index ? resetLayerKnobs(layer) : layer)
       }));
+    } else if (resetTarget?.kind === 'module') {
+      setState((current) => resetBusModuleKnobs(current, resetTarget.module));
     } else if (resetTarget?.kind === 'patch' && !presetLoadingRef.current && !exporting) {
       patchGenerationRef.current += 1;
       const initialized = createDefaultState();
@@ -942,6 +948,72 @@ export default function App() {
         </div>
 
         <div className="actions">
+          {isNativePlugin && (
+            <PresetBar
+              presets={savedPresets}
+              selected={selectedPreset}
+              libraryStatus={presetLibraryStatus}
+              status={presetStatus}
+              error={presetError}
+              busy={presetStatus === 'LOADING PRESET...' || presetStatus === 'SAVING PRESET...' || exporting}
+              ready={pluginStateLoaded}
+              onSelect={handleSelectPreset}
+              onRefresh={refreshPresetLibrary}
+              onSave={() => {
+                setShowPresetWarning(true);
+                setPresetError('');
+              }}
+              onSaveOver={() => {
+                setPresetError('');
+                setPresetToOverwrite(selectedPresetInfo);
+              }}
+              onDelete={(preset) => {
+                setPresetError('');
+                setPresetToDelete(preset);
+              }}
+            />
+          )}
+          <div className="topbar-group" role="group" aria-label="Audio">
+            <button
+              className={`topbar-button topbar-hit ${triggered ? 'is-active' : ''}`}
+              onMouseDown={() => triggerHit(1.0)}
+            >
+              HIT [SPACE / MIDI]
+            </button>
+            <button
+              className="topbar-button"
+              onClick={handleExport}
+              disabled={exporting}
+              title={helpEnabled ? (isNativePlugin ? 'Render a WAV in memory for copy or drag' : 'Render and download a 24-bit WAV') : undefined}
+            >
+              {exporting ? 'RENDERING WAV...' : wavActionStatus === 'PREPARE FAILED'
+                ? 'PREPARE FAILED - RETRY'
+                : isNativePlugin ? 'PREPARE WAV' : 'EXPORT 24-BIT .WAV'}
+            </button>
+            {preparedWav && (
+              <button
+                ref={wavActionRef}
+                className="topbar-button topbar-ready"
+                onClick={handleCopyPreparedWav}
+                draggable={!exporting}
+                onDragStart={handleWavDragStart}
+                disabled={exporting}
+                title={helpEnabled ? 'Click to copy or drag the prepared WAV. For file-based transfers, save it first.' : undefined}
+              >
+                {wavActionStatus || 'COPY / DRAG WAV'}
+              </button>
+            )}
+            {preparedWav && (
+              <button
+                className="topbar-button"
+                onClick={handleSavePreparedWav}
+                disabled={exporting}
+                title={helpEnabled ? 'Save a permanent WAV copy to a location you choose' : undefined}
+              >
+                SAVE WAV
+              </button>
+            )}
+          </div>
           <label className="theme-picker" htmlFor="layerforge-theme-select">
             <span>THEME</span>
             <select
@@ -955,193 +1027,16 @@ export default function App() {
               ))}
             </select>
           </label>
-          {isNativePlugin && (
-            <div className="preset-browser-controls">
-              <label className="theme-picker" htmlFor="layerforge-preset-select">
-                <span>PRESETS</span>
-                <select
-                  id="layerforge-preset-select"
-                  value={selectedPreset}
-                  onChange={(event) => {
-                    setSelectedPreset(event.target.value);
-                    setPresetError('');
-                  }}
-                  aria-label="Saved LayerForge presets"
-                >
-                  <option value="">{presetLibraryStatus || 'SELECT PRESET'}</option>
-                  {savedPresets.map((preset) => (
-                    <option key={preset.filename} value={preset.filename}>
-                      {preset.available ? preset.name : `UNAVAILABLE - ${preset.name}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="preset-browser-button"
-                onClick={handleLoadPreset}
-                disabled={!selectedPresetInfo?.available || presetStatus === 'LOADING PRESET...'}
-              >
-                LOAD
-              </button>
-              <button
-                type="button"
-                className="preset-browser-button"
-                onClick={refreshPresetLibrary}
-                aria-label="Refresh saved presets"
-                disabled={!pluginStateLoaded}
-              >
-                REFRESH
-              </button>
-              <button
-                type="button"
-                className="preset-browser-button preset-delete-button"
-                onClick={() => {
-                  setPresetError('');
-                  setPresetToDelete(selectedPresetInfo);
-                }}
-                disabled={!selectedPresetInfo || presetStatus === 'LOADING PRESET...'}
-                title={selectedPresetInfo?.available
-                  ? 'Delete this saved preset'
-                  : selectedPresetInfo?.error || 'Delete unavailable preset'}
-              >
-                DELETE
-              </button>
-              {presetStatus && (
-                <span className="preset-browser-status" role="status" title={presetError}>
-                  {presetStatus}
-                </span>
-              )}
-            </div>
-          )}
-          <button
-            className={`btn-trigger ${triggered ? 'is-active' : ''}`}
-            onMouseDown={() => triggerHit(1.0)}
-          >
-            HIT [SPACE / MIDI]
-          </button>
-          <button
-            className="btn-export"
-            onClick={handleExport}
-            disabled={exporting}
-            title={helpEnabled ? (isNativePlugin ? 'Render a WAV in memory for copy or drag' : 'Render and download a 24-bit WAV') : undefined}
-          >
-            {exporting ? 'RENDERING WAV...' : wavActionStatus === 'PREPARE FAILED'
-              ? 'PREPARE FAILED - RETRY'
-              : isNativePlugin ? 'PREPARE WAV' : 'EXPORT 24-BIT .WAV'}
-          </button>
-          {preparedWav && (
-            <button
-              ref={wavActionRef}
-              className="btn-export btn-export-ready"
-              onClick={handleCopyPreparedWav}
-              draggable={!exporting}
-              onDragStart={handleWavDragStart}
-              disabled={exporting}
-              title={helpEnabled ? 'Click to copy or drag the prepared WAV. For file-based transfers, save it first.' : undefined}
-            >
-              {wavActionStatus || 'COPY / DRAG WAV'}
-            </button>
-          )}
-          {preparedWav && (
-            <button
-              className="btn-export"
-              onClick={handleSavePreparedWav}
-              disabled={exporting}
-              title={helpEnabled ? 'Save a permanent WAV copy to a location you choose' : undefined}
-            >
-              SAVE WAV
-            </button>
-          )}
-          <div className="utility-menu" ref={utilityMenuRef}>
-            <button
-              className="btn-debug"
-              onClick={() => setShowUtilityMenu((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={showUtilityMenu}
-              aria-controls="layerforge-utility-menu"
-            >
-              SYSTEM MENU ▾
-            </button>
-            {showUtilityMenu && (
-              <div id="layerforge-utility-menu" className="utility-menu-panel" role="menu">
-                <a
-                  role="menuitem"
-                  href="https://github.com/ultimumdesign/LayerForge#readme"
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(event) => {
-                    if (isNativePlugin) {
-                      event.preventDefault();
-                      if (typeof window._postMessageToPluginBackend === 'function') {
-                        window._postMessageToPluginBackend('openUsageGuide', {});
-                      } else {
-                        console.error('[LayerForge] Cannot open the usage guide: native bridge is unavailable.');
-                      }
-                    }
-                    setShowUtilityMenu(false);
-                  }}
-                >
-                  USAGE GUIDE
-                </a>
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={helpEnabled}
-                  onClick={() => {
-                    setHelpEnabled((enabled) => !enabled);
-                    setShowUtilityMenu(false);
-                  }}
-                >
-                  HOVER HELP: {helpEnabled ? 'ON' : 'OFF'}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={(isNativePlugin && !pluginStateLoaded) || presetStatus === 'LOADING PRESET...' || exporting}
-                  onClick={() => {
-                    setResetTarget({ kind: 'patch' });
-                    setShowUtilityMenu(false);
-                  }}
-                >
-                  INITIALIZE PATCH
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setShowAbout(true);
-                    setShowUtilityMenu(false);
-                  }}
-                >
-                  ABOUT
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setShowDiagnostics((open) => !open);
-                    setShowUtilityMenu(false);
-                  }}
-                >
-                  DIAGNOSTICS{diagnostics.length > 0 ? ` (${diagnostics.length})` : ''}
-                </button>
-                {isNativePlugin && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setShowPresetWarning(true);
-                      setPresetError('');
-                      setShowUtilityMenu(false);
-                    }}
-                  >
-                    EXPORT PRESET
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <SystemMenu
+            isNativePlugin={isNativePlugin}
+            helpEnabled={helpEnabled}
+            onToggleHelp={() => setHelpEnabled((enabled) => !enabled)}
+            initializeDisabled={(isNativePlugin && !pluginStateLoaded) || presetStatus === 'LOADING PRESET...' || exporting}
+            onInitialize={() => setResetTarget({ kind: 'patch' })}
+            onAbout={() => setShowAbout(true)}
+            onDiagnostics={() => setShowDiagnostics((open) => !open)}
+            diagnosticsCount={diagnostics.length}
+          />
         </div>
       </header>
 
@@ -1204,7 +1099,8 @@ export default function App() {
           </div>
 
           {moduleSettings === 'noise' && state.noise.enabled && (
-          <ModuleSettingsDialog title="NOISE SYNTH" onClose={closeModuleSettings}>
+          <ModuleSettingsDialog title="NOISE SYNTH" onClose={closeModuleSettings}
+            onReset={() => setResetTarget({ kind: 'module', module: 'noise' })}>
           <NoiseWaveform
             noise={state.noise}
             waveform={visibleLayerSum.comparison?.noise}
@@ -1293,7 +1189,8 @@ export default function App() {
               >{state.master.saturationEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
             {moduleSettings === 'saturation' && state.master.saturationEnabled && (
-              <ModuleSettingsDialog title="SATURATION" onClose={closeModuleSettings}>
+              <ModuleSettingsDialog title="SATURATION" onClose={closeModuleSettings}
+            onReset={() => setResetTarget({ kind: 'module', module: 'saturation' })}>
               <EffectMeters effect="saturation" />
               <div className="knob-grid effect-knobs effect-knobs-three">
                 <RotaryKnob
@@ -1332,7 +1229,8 @@ export default function App() {
               >{state.master.glueEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
             {moduleSettings === 'glue' && state.master.glueEnabled && (
-              <ModuleSettingsDialog title="GLUE COMPRESSOR" onClose={closeModuleSettings}>
+              <ModuleSettingsDialog title="GLUE COMPRESSOR" onClose={closeModuleSettings}
+            onReset={() => setResetTarget({ kind: 'module', module: 'glue' })}>
               <EffectMeters effect="glue" />
               <div className="knob-grid effect-knobs">
                 <RotaryKnob
@@ -1457,12 +1355,16 @@ export default function App() {
           <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-title">
             <span className="storage-dialog-icon">!</span>
             <h2 id="reset-title">
-              {resetTarget.kind === 'patch' ? 'INITIALIZE PATCH?' : `RESET CH 0${resetTarget.index + 1} KNOBS?`}
+              {resetTarget.kind === 'patch' ? 'INITIALIZE PATCH?'
+                : resetTarget.kind === 'module' ? `RESET ${BUS_MODULE_LABELS[resetTarget.module].toUpperCase()} KNOBS?`
+                : `RESET CH 0${resetTarget.index + 1} KNOBS?`}
             </h2>
             <p>
               {resetTarget.kind === 'patch'
                 ? 'Remove all loaded samples and restore the initial channel, noise and master settings? Noise will be disabled. Unsaved changes will be lost.'
-                : 'Reset all channel knobs to their defaults? The sample, trim, envelope, mute and solo settings will be kept.'}
+                : resetTarget.kind === 'module'
+                  ? 'Reset this module\'s knobs to their defaults? Its on/off state and position in the signal flow are kept.'
+                  : 'Reset all channel knobs to their defaults? The sample, trim, envelope, mute and solo settings will be kept.'}
             </p>
             <div className="storage-dialog-actions">
               <button type="button" className="btn-debug" onClick={() => setResetTarget(null)} autoFocus>
@@ -1485,7 +1387,7 @@ export default function App() {
         <div className="modal-backdrop">
           <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-warning-title">
             <span className="storage-dialog-icon">!</span>
-            <h2 id="preset-warning-title">SELF-CONTAINED PRESET</h2>
+            <h2 id="preset-warning-title">SAVE PRESET</h2>
             <p>
               Saves the plugin configuration and complete sample audio for every loaded channel,
               not a summed WAV. Presets can be large and use disk space. They are stored in the
@@ -1513,10 +1415,35 @@ export default function App() {
               </button>
               <button
                 className="btn-export btn-export-warning"
-                onClick={confirmPresetExport}
-                disabled={!presetName.trim() || presetStatus === 'PREPARING PRESET...'}
+                onClick={() => confirmPresetExport()}
+                disabled={!presetName.trim() || presetStatus === 'SAVING PRESET...'}
               >
                 SAVE PRESET
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {presetToOverwrite && (
+        <div className="modal-backdrop">
+          <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-overwrite-title">
+            <span className="storage-dialog-icon">!</span>
+            <h2 id="preset-overwrite-title">SAVE OVER PRESET?</h2>
+            <p>
+              Replace "{presetToOverwrite.name}" with the current patch and its samples? The previous
+              contents of this preset cannot be recovered.
+            </p>
+            {presetError && <p className="preset-dialog-error">{presetError}</p>}
+            <div className="storage-dialog-actions">
+              <button className="btn-debug" onClick={() => setPresetToOverwrite(null)} autoFocus>
+                CANCEL
+              </button>
+              <button
+                className="btn-export btn-export-warning"
+                onClick={() => confirmPresetExport(presetToOverwrite)}
+                disabled={presetStatus === 'SAVING PRESET...'}
+              >
+                SAVE OVER
               </button>
             </div>
           </section>

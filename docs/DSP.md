@@ -200,6 +200,14 @@ Compressor WET REDUCTION reports the maximum of the actual linked wet-path
 gain reduction in dB over that interval, not an estimate from input/output
 levels or the dry/wet blend. It can remain nonzero when DRY/WET is 0.
 
+HIT PEAK readouts (UI only, no DSP effect) hold the largest meter-interval
+value since a hit began; a hit ends after 300 ms with peaks below 0.0001
+(about −80 dBFS) or reduction below 0.05 dB. They are interval peaks, not
+true-peak or inter-sample values.
+
+Resetting a module's knobs restores its parameter defaults (including OUTPUT
+and dry/wet where present) while leaving enable flags and bus order untouched.
+
 ### Master clipper, ceiling and output
 
 After the bus: master clipper (BUS DRIVE 0–24 dB, SOFT/HARD 0–1), then

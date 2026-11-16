@@ -7,11 +7,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import OfflineRenderer from '@elemaudio/offline-renderer';
 import { el } from '@elemaudio/core';
+import { createHitPeakTracker } from '../src/audio/meterPeaks.js';
 import { buildDrumGraph } from '../dsp/engine.js';
 import { glueCompressor, saturator } from '../dsp/nodes.js';
 import { getEnvelopeSequence, getEnvelopeValueAt } from '../dsp/envelope.js';
 import {
   createDefaultState,
+  resetBusModuleKnobs,
   resetLayerKnobs,
   restorePatchState,
   serializePatchState,
@@ -1470,4 +1472,31 @@ test('noise decay is not cut short by the trigger gate', async () => {
   assert.ok(peakAt(0.3, 0.4) > 0.001);
   assert.ok(peakAt(0.3, 0.4) < peakAt(0, 0.05));
   assert.ok(peakAt(0.99, 1) < 0.001);
+});
+
+test('module knob reset restores defaults but keeps enable state and order', () => {
+  const state = createDefaultState();
+  state.master.busOrder = ['glue', 'noise', 'saturation'];
+  state.master.saturationEnabled = true;
+  state.master.saturationDrive = 0.9;
+  state.noise.enabled = true;
+  state.noise.cutoff = 123;
+  const defaults = createDefaultState();
+
+  const saturation = resetBusModuleKnobs(state, 'saturation');
+  assert.equal(saturation.master.saturationDrive, defaults.master.saturationDrive);
+  assert.equal(saturation.master.saturationEnabled, true);
+  assert.deepEqual(saturation.master.busOrder, ['glue', 'noise', 'saturation']);
+
+  const noise = resetBusModuleKnobs(state, 'noise');
+  assert.equal(noise.noise.cutoff, defaults.noise.cutoff);
+  assert.equal(noise.noise.enabled, true);
+});
+
+test('hit peak tracker holds the loudest value until a new hit starts', () => {
+  const tracker = createHitPeakTracker([0.001]);
+  tracker.update([0.2], 0);
+  assert.deepEqual(tracker.update([0.5], 50), [0.5]);
+  assert.deepEqual(tracker.update([0], 200), [0.5]);
+  assert.deepEqual(tracker.update([0.3], 1000), [0.3]);
 });
