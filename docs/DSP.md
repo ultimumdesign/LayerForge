@@ -142,17 +142,11 @@ white noise ► band-pass SVF (FREQ, RESO) ► envelope ► [trim window × curv
 
 - **Source.** One uniform white-noise generator, shared by both sides (mono).
   It is free-running, so every hit differs.
-- **Filter.** Band-pass, FREQ 150–16 000 Hz, RESO (Q) 0.5–10.
-- **Envelope.** 1 ms attack followed by an exponential decay. In the native
-  graph the decay time constant is `DECAY / 6.91`, so DECAY is the time to fall
-  about 60 dB. The browser and offline renderers use Elementary's ADSR with the
-  same attack, decay and a 15 ms release. They are different envelope
-  generators, so tails can differ slightly.
-- **Gate limit.** The envelope follows the 28 ms trigger gate. When the gate
-  closes it releases within about 15 ms, so audible noise lasts roughly
-  40–45 ms whatever DECAY is. Values above about 30 ms mainly set the slope
-  *within* that window instead of lengthening the sound. This is current
-  behavior, not a design goal.
+- **Filter.** Band-pass, FREQ 20–20 000 Hz, RESO (Q) 0.1–30.
+- **Envelope.** Time-based and identical in every renderer: 1 ms attack, then
+  `exp(−6.91 · t / DECAY)` (DECAY, 2 ms–3 s, is the time to fall about 60 dB),
+  then a 15 ms linear fade at `t = DECAY`. A trigger only restarts the clock,
+  so the 28 ms gate does not shorten the noise.
 - **Window and curve.** IN/OUT and the gain curve span `DECAY + 16 ms`,
   normalized 0–1. With full trim and the default flat envelope this stage is
   skipped.
@@ -170,7 +164,7 @@ the running bus. Disabled modules are removed from the graph.
 
 ```text
 wet = tanh(g · x) / tanh(g),   g = 10^(SAT DRIVE / 20)
-y   = (1 − SAT MIX) · x + SAT MIX · wet
+y   = (1 − SAT DRY/WET) · x + SAT DRY/WET · wet
 ```
 
 Dividing by `tanh(g)` makes a full-scale input map to full scale. Small signals
@@ -184,10 +178,12 @@ A feed-forward, stereo-linked, peak-sensing compressor:
 1. Detector: `max(|L|, |R|)` through a one-pole follower with ATTACK
    (1–100 ms) and RELEASE (30–600 ms) time constants.
 2. Level in dBFS, then `over = level − THRESH` (THRESH −36 to 0 dB).
-3. A fixed 6 dB soft knee: quadratic within ±3 dB of the threshold, linear
-   above it.
+3. A soft knee of width KNEE (0–24 dB, default 6): quadratic within ±KNEE/2
+   of the threshold, linear above it. KNEE 0 is a hard knee.
 4. Gain reduction in dB is `(1 − 1/RATIO) · compressedOver` (RATIO 1–8:1),
    applied equally to both sides so the stereo image is preserved.
+5. DRY/WET (0–1, default 1) blends the uncompressed signal with the compressed
+   one (parallel compression); 0 is dry.
 
 There is no make-up gain, look-ahead or program-dependent release. A peak
 detector reacts to transients faster than an RMS one, but very short peaks can

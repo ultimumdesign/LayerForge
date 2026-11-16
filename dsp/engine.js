@@ -117,16 +117,17 @@ function buildDrumNodes(state, nativeMidi = false) {
     const nRes = el.sm(el.const({ key: 'noise:res', value: state.noise.q }));
     const bpNoise = el.svf({ mode: 'bandpass' }, nFreq, nRes, rawNoise);
 
+    // Time-based envelope: the trigger only restarts it, so DECAY is not cut short by the 28 ms gate.
     const attack = 0.001;
-    const attackGate = nativeMidi
-      ? el.le(el.sub(el.accum(1, triggerCount), 1), el.mul(attack, el.sr()))
-      : null;
-    const env = nativeMidi
-      ? el.smooth(
-        el.tau2pole(el.div(el.max(1e-4, el.select(gate, el.select(attackGate, attack, state.noise.decay), 0.015)), 6.91)),
-        el.select(gate, attackGate, 0)
-      )
-      : el.adsr(attack, state.noise.decay, 0.0, 0.015, gate);
+    const tail = 0.015;
+    const decay = state.noise.decay;
+    const restart = nativeMidi ? triggerCount : gate;
+    const armed = nativeMidi ? el.geq(triggerCount, 1) : el.latch(gate, 1);
+    const seconds = el.div(el.sub(el.accum(1, restart), 1), el.sr());
+    const attackRamp = el.min(1, el.div(seconds, attack));
+    const decayCurve = el.exp(el.mul(-6.91 / decay, seconds));
+    const tailFade = el.max(0, el.min(1, el.sub(1, el.div(el.sub(seconds, decay), tail))));
+    const env = el.mul(armed, attackRamp, decayCurve, tailFade);
     const trimStart = state.noise.trimStart ?? 0;
     const trimEnd = state.noise.trimEnd ?? 1;
     const points = state.noise.envelopePoints || DEFAULT_ENVELOPE_POINTS;

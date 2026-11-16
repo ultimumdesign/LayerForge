@@ -1354,3 +1354,22 @@ test('noise controls accept the extended ranges', () => {
     [20000, 30, 3, 36, 2]
   );
 });
+
+test('noise decay is not cut short by the trigger gate', async () => {
+  const patch = createDefaultState();
+  patch.noise.enabled = true;
+  patch.noise.decay = 1;
+  patch.noise.gain = 1;
+  const { comparison } = await renderWaveformPreview(patch, {});
+  const { min, max } = comparison.noise;
+  const peakAt = (from, to) => {
+    let peak = 0;
+    for (let index = Math.floor(from * max.length); index < Math.ceil(to * max.length); index += 1) {
+      peak = Math.max(peak, Math.abs(min[index]), Math.abs(max[index]));
+    }
+    return peak;
+  };
+  assert.ok(peakAt(0.3, 0.4) > 0.001);
+  assert.ok(peakAt(0.3, 0.4) < peakAt(0, 0.05));
+  assert.ok(peakAt(0.99, 1) < 0.001);
+});

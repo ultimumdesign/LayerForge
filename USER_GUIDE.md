@@ -134,11 +134,11 @@ mixed.
 
 | Control | Function | Range (default) |
 |---|---|---|
-| FREQ | Band-pass centre | 150–16000 Hz (4800) |
-| RESO | Band-pass Q | 0.5–10 (1.4) |
-| DECAY | Envelope time (≈ −60 dB) | 5–600 ms (75) |
-| CLIP DRV | Clipper drive | 0–24 dB (3) |
-| MIX | Level | 0–1 (0.22) |
+| FREQ | Band-pass centre | 20–20000 Hz (4800) |
+| RESO | Band-pass Q | 0.1–30 (1.4) |
+| DECAY | Envelope time (≈ −60 dB) | 2 ms–3 s (75 ms) |
+| CLIP DRV | Clipper drive | 0–36 dB (3) |
+| MIX | Level | 0–2 (0.22) |
 
 The settings popup shows the processed noise waveform, which can be edited like
 a sample: gain-envelope points, curve handles, reset, and IN/OUT to gate a
@@ -146,9 +146,8 @@ window within the hit (without shifting it earlier). Changing DECAY rescales
 that window. There is no silence snapping. Noise differs on each trigger, and
 the waveform is an offline preview.
 
-Noise length is bounded by the 28 ms trigger gate (audible noise lasts about
-40 ms), so DECAY above ~30 ms mostly changes the curve's slope rather than
-lengthening the sound.
+Noise length follows DECAY (plus a 15 ms tail). The 28 ms trigger gate only
+restarts the envelope, so long decays ring out in full.
 
 The enable switch is separate from **M**: enabling a muted synth leaves it
 muted, and disabling it keeps its mute and solo. The settings button is
@@ -165,11 +164,14 @@ editable while bypassed, and editing does not enable them.
 
 | Module | Controls | Range (default) |
 |---|---|---|
-| SATURATION | SAT DRIVE, SAT MIX | 0–24 dB (6), 0–1 (1) |
+| SATURATION | SAT DRIVE | 0–24 dB (6) |
+| | SAT DRY/WET | 0–1 (1) |
 | GLUE COMPRESSOR | THRESH | −36 to 0 dB (−12) |
 | | RATIO | 1–8:1 (2) |
 | | ATTACK | 1–100 ms (10) |
 | | RELEASE | 30–600 ms (120) |
+| | KNEE | 0–24 dB (6) |
+| | DRY/WET | 0–1 (1); 0 is dry, 1 is fully compressed |
 | OUTPUT STAGE | BUS DRIVE | 0–24 dB (2) |
 | | SOFT/HARD | 0–1 (0.45) |
 | | CEILING | 0.1–1.0 linear (0.95) |
