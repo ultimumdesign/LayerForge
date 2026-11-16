@@ -14,7 +14,6 @@ plugin_name="LayerForge.vst3"
 plugin_path="$destination/$plugin_name"
 
 echo "==> Building production UI..."
-npm run check
 npm run build:ui
 
 echo "==> Configuring native plugin..."

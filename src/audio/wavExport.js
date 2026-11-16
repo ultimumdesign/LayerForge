@@ -1,11 +1,14 @@
 import OfflineRenderer from '@elemaudio/offline-renderer';
-import { buildDrumGraph } from '../../dsp/engine.js';
+import { buildDrumGraph, buildDrumPreviewGraph } from '../../dsp/engine.js';
+import { getSamplePhaseShift, getSampleTrimRange } from '../../dsp/parameters.js';
+import { DEFAULT_WAVEFORM_BIN_COUNT } from './waveform.js';
 
 const SAMPLE_RATE = 44100;
 const BLOCK_SIZE = 128;
+const WARMUP_SAMPLES = Math.ceil((SAMPLE_RATE * 0.5) / BLOCK_SIZE) * BLOCK_SIZE;
 
-function getPatchDurationSec(state, vfsBuffers) {
-  const hasSolo = state.layers.some((layer) => layer.solo) || state.noise.solo;
+export function getPatchDurationSec(state, vfsBuffers) {
+  const hasSolo = state.layers.some((layer) => layer.solo) || (state.noise.enabled && state.noise.solo);
   const layerDurations = state.layers.map((layer) => {
     const samples = layer.sampleKey ? vfsBuffers[layer.sampleKey] : null;
     if (
@@ -18,28 +21,38 @@ function getPatchDurationSec(state, vfsBuffers) {
     }
 
     const playbackRate = Math.pow(2, layer.pitch / 12);
-    const trimEnd = Math.max(0.01, Math.min(1, layer.trimEnd ?? 1));
-    const playableSamples = Math.max(1, Math.round(samples.length * trimEnd));
-    const sampleDuration = playableSamples / ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
-    return Math.max(0, layer.delayMs) / 1000 + sampleDuration;
+    const trimRange = getSampleTrimRange(samples.length, layer.trimStart, layer.trimEnd);
+    const phase = getSamplePhaseShift(trimRange.sampleCount, layer.phaseOffset);
+    const sampleDuration = (trimRange.sampleCount - phase.advanceSamples) /
+      ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
+    const phaseDelay = phase.delaySamples / ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
+    return Math.max(0, layer.delayMs) / 1000 + phaseDelay + sampleDuration;
   });
   const noiseAudible =
-    !state.noise.mute &&
+    state.noise.enabled && !state.noise.mute &&
     state.noise.gain > 0.0005 &&
     (!hasSolo || state.noise.solo);
   return Math.max(0.12, ...layerDurations, noiseAudible ? state.noise.decay + 0.02 : 0) + 0.02;
 }
 
-async function initializeRenderer(vfsBuffers) {
+async function initializeRenderer(vfsBuffers, numOutputChannels = 2) {
   const offline = new OfflineRenderer();
   await offline.initialize({
     numInputChannels: 0,
-    numOutputChannels: 2,
+    numOutputChannels,
     sampleRate: SAMPLE_RATE,
     blockSize: BLOCK_SIZE,
     virtualFileSystem: vfsBuffers
   });
   return offline;
+}
+
+async function warmRenderer(offline, state, buildGraph, channelCount) {
+  await offline.render(...buildGraph({ ...state, gate: 0, velocity: 1 }));
+  const outputs = Array.from({ length: channelCount }, () => new Float32Array(BLOCK_SIZE));
+  for (let offset = 0; offset < WARMUP_SAMPLES; offset += BLOCK_SIZE) {
+    offline.process([], outputs);
+  }
 }
 
 /**
@@ -51,6 +64,7 @@ export async function renderWavBlob(state, vfsBuffers) {
   const durationSec = getPatchDurationSec(state, vfsBuffers);
   const totalSamples = Math.floor(sampleRate * durationSec);
   const offline = await initializeRenderer(vfsBuffers);
+  await warmRenderer(offline, state, buildDrumGraph, 2);
 
   const renderState = {
     ...state,
@@ -93,64 +107,87 @@ export async function renderWavBlob(state, vfsBuffers) {
   return encodeWav24Bit(trimmedLeft, trimmedRight, sampleRate);
 }
 
-export async function renderWaveformPreview(state, vfsBuffers, barCount = 176) {
+export async function renderWaveformPreview(
+  state,
+  vfsBuffers,
+  barCount = DEFAULT_WAVEFORM_BIN_COUNT
+) {
   const durationSec = getPatchDurationSec(state, vfsBuffers);
   const totalSamples = Math.floor(SAMPLE_RATE * durationSec);
   const gateSamples = Math.ceil((SAMPLE_RATE * 0.028) / BLOCK_SIZE) * BLOCK_SIZE;
-  const offline = await initializeRenderer(vfsBuffers);
+  const channelCount = (state.layers.length + 3) * 2;
+  const offline = await initializeRenderer(vfsBuffers, channelCount);
+  await warmRenderer(offline, state, buildDrumPreviewGraph, channelCount);
   const renderState = { ...state, gate: 1, velocity: 1 };
-  const [leftNode, rightNode] = buildDrumGraph(renderState);
-  await offline.render(leftNode, rightNode);
+  await offline.render(...buildDrumPreviewGraph(renderState));
 
-  const peaks = new Float32Array(barCount);
-  const leftMin = new Float32Array(barCount);
-  const leftMax = new Float32Array(barCount);
-  const rightMin = new Float32Array(barCount);
-  const rightMax = new Float32Array(barCount);
-  leftMin.fill(Infinity);
-  rightMin.fill(Infinity);
-  leftMax.fill(-Infinity);
-  rightMax.fill(-Infinity);
+  const transientSampleCount = Math.min(totalSamples, Math.floor(SAMPLE_RATE * 0.1));
+  const waveforms = Array.from({ length: channelCount / 2 }, () => {
+    const min = new Float32Array(barCount);
+    const max = new Float32Array(barCount);
+    min.fill(Infinity);
+    max.fill(-Infinity);
+    return {
+      min, max,
+      transient: new Float32Array(transientSampleCount),
+      transientMax: new Float32Array(transientSampleCount)
+    };
+  });
 
   const processRange = (startSample, length) => {
     const chunkSize = 4096;
     let offset = 0;
     while (offset < length) {
       const size = Math.min(chunkSize, length - offset);
-      const left = new Float32Array(size);
-      const right = new Float32Array(size);
-      offline.process([], [left, right]);
+      const output = Array.from({ length: channelCount }, () => new Float32Array(size));
+      offline.process([], output);
       for (let index = 0; index < size; index += 1) {
         const absoluteIndex = startSample + offset + index;
         const bar = Math.min(barCount - 1, Math.floor((absoluteIndex * barCount) / totalSamples));
-        const leftSample = left[index];
-        const rightSample = right[index];
-        peaks[bar] = Math.max(peaks[bar], Math.abs(leftSample), Math.abs(rightSample));
-        leftMin[bar] = Math.min(leftMin[bar], leftSample);
-        leftMax[bar] = Math.max(leftMax[bar], leftSample);
-        rightMin[bar] = Math.min(rightMin[bar], rightSample);
-        rightMax[bar] = Math.max(rightMax[bar], rightSample);
+        for (let channel = 0; channel < waveforms.length; channel += 1) {
+          const left = output[channel * 2][index];
+          const right = output[channel * 2 + 1][index];
+          const waveform = waveforms[channel];
+          waveform.min[bar] = Math.min(waveform.min[bar], left, right);
+          waveform.max[bar] = Math.max(waveform.max[bar], left, right);
+          if (absoluteIndex < transientSampleCount) {
+            waveform.transient[absoluteIndex] = left;
+            waveform.transientMax[absoluteIndex] = right;
+          }
+        }
       }
       offset += size;
     }
   };
 
   processRange(0, gateSamples);
-  const [leftReleaseNode, rightReleaseNode] = buildDrumGraph({ ...renderState, gate: 0 });
-  await offline.render(leftReleaseNode, rightReleaseNode);
+  await offline.render(...buildDrumPreviewGraph({ ...renderState, gate: 0 }));
   processRange(gateSamples, Math.max(0, totalSamples - gateSamples));
 
-  for (let index = 0; index < barCount; index += 1) {
-    if (!Number.isFinite(leftMin[index])) leftMin[index] = 0;
-    if (!Number.isFinite(leftMax[index])) leftMax[index] = 0;
-    if (!Number.isFinite(rightMin[index])) rightMin[index] = 0;
-    if (!Number.isFinite(rightMax[index])) rightMax[index] = 0;
+  for (const waveform of waveforms) {
+    for (let index = 0; index < barCount; index += 1) {
+      if (!Number.isFinite(waveform.min[index])) waveform.min[index] = 0;
+      if (!Number.isFinite(waveform.max[index])) waveform.max[index] = 0;
+    }
   }
 
+  const [final, ...remaining] = waveforms;
+  const preMaster = remaining.pop();
+  const noise = remaining.pop();
+  const peaks = Array.from(final.min, (value, index) =>
+    Math.max(Math.abs(value), Math.abs(final.max[index]))
+  );
+
   return {
-    peaks: Array.from(peaks),
+    peaks,
     durationSec,
-    stereoWaveform: { leftMin, leftMax, rightMin, rightMax }
+    stereoWaveform: {
+      leftMin: final.min,
+      leftMax: final.max,
+      rightMin: final.min,
+      rightMax: final.max
+    },
+    comparison: { final, layers: remaining, noise, preMaster, sampleRate: SAMPLE_RATE }
   };
 }
 

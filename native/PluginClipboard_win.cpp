@@ -13,32 +13,57 @@
 
 namespace layerforge
 {
-bool copyFileToClipboard(const juce::File &file)
+bool copyWavToClipboard(const WavData &wav)
 {
-    if (!file.existsAsFile())
+    if (wav.bytes.empty())
         return false;
 
-    const auto path = file.getFullPathName();
-    const auto *widePath = path.toWideCharPointer();
-    const auto pathLength = std::wcslen(widePath);
-    const auto dataSize = sizeof(DROPFILES) + (pathLength + 2) * sizeof(wchar_t);
-    auto memory = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, dataSize);
+    if (wav.savedFile != juce::File())
+    {
+        if (!wav.savedFile.existsAsFile())
+            return false;
+        const auto path = wav.savedFile.getFullPathName();
+        const auto *widePath = path.toWideCharPointer();
+        const auto length = std::wcslen(widePath);
+        auto fileMemory =
+            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DROPFILES) + (length + 2) * sizeof(wchar_t));
+        if (fileMemory == nullptr)
+            return false;
+        auto *dropFiles = static_cast<DROPFILES *>(GlobalLock(fileMemory));
+        if (dropFiles == nullptr)
+        {
+            GlobalFree(fileMemory);
+            return false;
+        }
+        dropFiles->pFiles = sizeof(DROPFILES);
+        dropFiles->fWide = TRUE;
+        auto *fileList = reinterpret_cast<wchar_t *>(reinterpret_cast<std::byte *>(dropFiles) + sizeof(DROPFILES));
+        std::memcpy(fileList, widePath, length * sizeof(wchar_t));
+        GlobalUnlock(fileMemory);
+        if (!OpenClipboard(nullptr))
+        {
+            GlobalFree(fileMemory);
+            return false;
+        }
+        const bool copied = EmptyClipboard() && SetClipboardData(CF_HDROP, fileMemory) != nullptr;
+        CloseClipboard();
+        if (!copied)
+            GlobalFree(fileMemory);
+        return copied;
+    }
+
+    auto memory = GlobalAlloc(GMEM_MOVEABLE, wav.bytes.size());
     if (memory == nullptr)
         return false;
 
-    auto *dropFiles = static_cast<DROPFILES *>(GlobalLock(memory));
-    if (dropFiles == nullptr)
+    auto *data = GlobalLock(memory);
+    if (data == nullptr)
     {
         GlobalFree(memory);
         return false;
     }
 
-    dropFiles->pFiles = sizeof(DROPFILES);
-    dropFiles->fWide = TRUE;
-    auto *fileList = reinterpret_cast<wchar_t *>(reinterpret_cast<std::byte *>(dropFiles) + sizeof(DROPFILES));
-    std::memcpy(fileList, widePath, pathLength * sizeof(wchar_t));
-    fileList[pathLength] = L'\0';
-    fileList[pathLength + 1] = L'\0';
+    std::memcpy(data, wav.bytes.data(), wav.bytes.size());
     GlobalUnlock(memory);
 
     if (!OpenClipboard(nullptr))
@@ -47,7 +72,7 @@ bool copyFileToClipboard(const juce::File &file)
         return false;
     }
 
-    const bool copied = EmptyClipboard() && SetClipboardData(CF_HDROP, memory) != nullptr;
+    const bool copied = EmptyClipboard() && SetClipboardData(CF_WAVE, memory) != nullptr;
     CloseClipboard();
     if (!copied)
         GlobalFree(memory);

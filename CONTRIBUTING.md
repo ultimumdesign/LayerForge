@@ -24,6 +24,29 @@ to see whether it has already been discussed.
 - For small, self-contained fixes, you may open a pull request directly, but
   link any related issue.
 
+## Development setup
+
+1. Install Node.js 22+ and Git. For native work also install CMake 3.22+ and
+   the platform C++ toolchain; optionally `clang-format` and ShellCheck for
+   the lint scripts.
+2. `npm run setup` installs npm packages and clones JUCE 8.0.4 and the pinned
+   Elementary runtime into `native/third_party/` (untracked).
+3. `npm run dev` serves the browser preview at `http://localhost:5173`. Most UI
+   and DSP work needs nothing more.
+4. `npm run build` builds the UI and the native plug-in; `npm run
+   install:vst3` also installs a development VST3 on macOS.
+
+Where things live: `dsp/` is the engine shared by every target, `src/` the
+React UI and audio bridge, `native/` the JUCE plug-in, `test/` the Node tests,
+and `docs/` the technical documentation. Read
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before touching the processor or
+bridge, and [docs/DSP.md](docs/DSP.md) before changing the sound.
+
+Native MIDI tests are optional. Configure CMake with
+`-DLAYERFORGE_BUILD_TESTS=ON` and build the `LayerForgeNativeTests` target
+(after `npm run build:ui` and `npm run build:native` have generated the
+embedded assets).
+
 ## Open a pull request
 
 1. Fork the repository and create a branch for your change.
@@ -42,6 +65,8 @@ to see whether it has already been discussed.
    npm run lint:shell
    npm run lint:native
    npm test
+   npm run check:release
+   npm audit --audit-level=high
    npm run build:ui
    ```
 
@@ -58,5 +83,45 @@ to see whether it has already been discussed.
 
 - Preserve existing behavior unless the issue explicitly calls for a change.
 - Include or update focused tests for behavior changes.
+- Update the [user guide](USER_GUIDE.md) for user-visible changes and
+  [docs/DSP.md](docs/DSP.md) when ranges, defaults or algorithms change. Keep
+  the control tables in sync with `dsp/parameters.js`.
+  The **Publish manual** workflow builds these docs into an HTML manual (index
+  plus one page per document) and deploys it to GitHub Pages on `main`.
 - Do not include secrets, proprietary samples, or unrelated formatting changes.
 - Keep license and copyright notices intact.
+
+## Testing waveform changes
+
+`npm run check` runs lint and the Node test suite. Both `npm run build:ui` and
+`npm run build:native` run these checks first; direct Vite or CMake calls bypass
+them. The tests cover DSP and waveform data, not every host workflow.
+
+When adding or changing waveform capabilities:
+
+1. Add a focused case to `test/waveform.test.js`. Start with
+   `createLoadedPatch` and a short deterministic sample, such as silence with
+   a single impulse; provide the sample under its VFS key.
+2. Assert the feature's actual output: time-bin location, signed min/max,
+   path coordinates, duration or amplitude. Cover relevant edge cases such
+   as silence, boundaries, zoom, short transients and missing data. Confirm
+   display-only changes do not alter audio.
+3. If sound changes, compare samples from `renderWaveformPreview` or
+   `OfflineRenderer` against a known baseline. Do not assume nonlinear effects
+   scale linearly. Cover left and right independently, mono compatibility,
+   stereo-linked processing, and live/offline lane consistency when relevant.
+   For persisted settings, test both a round trip and an older patch without
+   the new field.
+4. Run `npm run check`, and manually inspect the browser or a plugin host when
+   interaction, themes, resizing or real-time behavior is involved. For a
+   bug fix, add a regression case that fails without the fix when practical.
+
+Summarize the commands and manual checks in the pull request; do not claim a
+passing suite proves behavior that was not tested.
+
+For signal-chain or meter changes, also verify reordered and bypassed modules,
+stereo input/output taps, wet-path gain reduction, and effect output gains.
+Keep the browser and native monitor layouts synchronized as described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#monitor-outputs); test persisted
+values and older patches. Exercise the settings and meters in a host as well
+as in the browser when native behavior is affected.

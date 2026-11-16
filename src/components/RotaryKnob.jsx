@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { HelpTip } from './HelpTip.jsx';
 
 export function RotaryKnob({
   label,
@@ -7,9 +8,9 @@ export function RotaryKnob({
   max,
   defaultValue = 0,
   unit = '',
-  accent = '#f59e0b',
+  accent = 'var(--theme-accent)',
   decimals = 2,
-  description = 'Drag vertically to adjust | Shift+Drag for fine | Double-click to reset',
+  description = 'Drag vertically to adjust; Shift+drag for fine control.',
   onChange
 }) {
   const dragState = useRef(null);
@@ -85,7 +86,6 @@ export function RotaryKnob({
     <div
       className="knob-unit"
       onDoubleClick={() => onChange(defaultValue)}
-      title={`${description} | Click the value to type an exact number`}
     >
       <div
         className="knob-dial"
@@ -125,7 +125,11 @@ export function RotaryKnob({
           <span className="knob-indicator" style={{ backgroundColor: accent }} />
         </div>
       </div>
-      <span className="knob-label">{label}</span>
+      <div className="knob-label-row">
+        <HelpTip text={`${description} Click the value to type an exact number; double-click the knob to reset.`}>
+          <span className="knob-label">{label}</span>
+        </HelpTip>
+      </div>
       {editing ? (
         <div className="knob-value-edit">
           <input

@@ -29,10 +29,7 @@ export function DiagnosticsPanel({ entries, onClose }) {
           CLOSE
         </button>
       </header>
-      <p>
-        Copy this report and attach it here. Native logs are also saved to
-        {' '}<code>~/Library/Logs/LayerForge/LayerForge.log</code>.
-      </p>
+      <p>Copy this in-memory report when reporting a problem. LayerForge does not automatically save a log file.</p>
       <textarea ref={reportRef} readOnly value={report} aria-label="Diagnostics report" />
       <div className="diagnostics-actions">
         <button className="btn-export" onClick={copyReport}>COPY REPORT</button>
