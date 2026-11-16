@@ -253,6 +253,30 @@ bool copyWavToClipboard(const WavData &wav)
     }
 }
 
+bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void()> finished)
+{
+    static juce::File webDragTempFile;
+    if (webDragTempFile != juce::File())
+        webDragTempFile.getParentDirectory().deleteRecursively();
+    webDragTempFile = juce::File();
+
+    auto file = wav.savedFile;
+    if (file != juce::File() && !file.existsAsFile())
+        return false;
+    if (file == juce::File())
+    {
+        // Kept until the next drag: DAWs read the file after the drop.
+        file = writeTemporaryWavFile(wav);
+        if (file == juce::File())
+            return false;
+        webDragTempFile = file;
+    }
+    const auto started = juce::DragAndDropContainer::performExternalDragDropOfFiles({file.getFullPathName()}, false,
+                                                                                    &source, std::move(finished));
+    NSLog(@"LayerForge transfer: web drag started=%d %s", started, file.getFullPathName().toRawUTF8());
+    return started;
+}
+
 void releaseClipboardTempFile()
 {
     removeClipboardTempFile();

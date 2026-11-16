@@ -2,6 +2,9 @@
 
 #include <functional>
 #include <juce_core/juce_core.h>
+#if JUCE_MAC
+#include <juce_gui_basics/juce_gui_basics.h>
+#endif
 #include <memory>
 #include <string>
 #include <vector>
@@ -50,6 +53,9 @@ bool copyWavToClipboard(const WavData &wav);
 // Removes the temporary file backing the last clipboard copy, if any.
 void releaseClipboardTempFile();
 #if JUCE_MAC
+// Starts a native file drag from the editor window using the current mouse event.
+// Returns false if macOS refuses to start the drag.
+bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void()> finished);
 void attachWavDragView(juce::NSViewComponent &component, WavActionStatusCallback statusCallback);
 void setWavDragViewTarget(void *nativeView, const std::string &key, WavDataPtr wav);
 void detachWavDragView(void *nativeView);

@@ -727,6 +727,31 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                     return;
                 }
 
+                if (type == "wavFileDrag") {
+#if JUCE_MAC
+                    const auto* dragRequest = messagePayload.getDynamicObject();
+                    const auto key = dragRequest == nullptr
+                        ? juce::String()
+                        : dragRequest->getProperty("key").toString();
+                    const auto staged = stagedWavs.find(key.toStdString());
+                    if (staged == stagedWavs.end()) {
+                        emitWavActionStatus(webView.get(), key, "dragFailed", "The prepared WAV is no longer available");
+                        return;
+                    }
+                    const auto weak = juce::Component::SafePointer<juce::Component>(this);
+                    if (!layerforge::beginWavFileDrag(*this, *staged->second, [weak, key, this] {
+                            if (weak != nullptr)
+                                emitWavActionStatus(webView.get(), key, "dropAccepted", {});
+                        })) {
+                        emitWavActionStatus(webView.get(), key, "dragFailed",
+                                            "macOS did not start the WAV drag");
+                        return;
+                    }
+                    emitWavActionStatus(webView.get(), key, "dragStarted", {});
+#endif
+                    return;
+                }
+
                 if (type == "wavClipboard") {
                     const auto* clipboardRequest = messagePayload.getDynamicObject();
                     if (clipboardRequest == nullptr) {

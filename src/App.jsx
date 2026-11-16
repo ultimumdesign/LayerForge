@@ -722,6 +722,13 @@ export default function App() {
   const handleWavDragStart = (event) => {
     if (!preparedWav || !bridgeRef.current) return;
 
+    // The plug-in webview cannot hand files to other apps; let the native window start the drag.
+    if (bridgeRef.current.isNativePlugin) {
+      event.preventDefault();
+      bridgeRef.current.startNativeWavDrag(preparedWav.key);
+      return;
+    }
+
     try {
       const file = new File([preparedWav.blob], preparedWav.filename, { type: 'audio/wav' });
       event.dataTransfer?.items.add(file);
