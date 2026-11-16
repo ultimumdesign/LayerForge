@@ -200,6 +200,13 @@ export default function App() {
   const patchStateJson = JSON.stringify({ ...serializePatchState(state), uiTheme: themeId });
   const patchStateRef = useRef(patchStateJson);
   patchStateRef.current = patchStateJson;
+  const selectedPresetRef = useRef('');
+  selectedPresetRef.current = selectedPreset;
+  // The loaded preset name rides along with the host-saved state so it survives editor closes.
+  const snapshotPatchState = () => ({
+    ...JSON.parse(patchStateRef.current),
+    loadedPreset: selectedPresetRef.current
+  });
 
   const refreshPresetLibrary = useCallback(async () => {
     const bridge = bridgeRef.current;
@@ -424,8 +431,11 @@ export default function App() {
     initialization.then(async () => {
       if (!active) return;
       setState(restorePatchState(bridge.restoredPluginState, bridge.vfsBuffers));
-      if (bridge.isNativePlugin)
+      if (bridge.isNativePlugin) {
         setThemeId(getUiTheme(bridge.restoredPluginState?.uiTheme).id);
+        const loadedPreset = bridge.restoredPluginState?.loadedPreset;
+        if (typeof loadedPreset === 'string') setSelectedPreset(loadedPreset);
+      }
       setPluginStateLoaded(true);
       await refreshPresetLibrary();
     }).catch((error) => {
@@ -450,19 +460,19 @@ export default function App() {
     const timer = window.setTimeout(() => {
       if (presetLoadingRef.current) return;
       try {
-        bridgeRef.current?.saveNativePluginState(JSON.parse(patchStateRef.current));
+        bridgeRef.current?.saveNativePluginState(snapshotPatchState());
       } catch (error) {
         console.error('[LayerForge] Could not save the patch state:', error);
       }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [isNativePlugin, patchStateJson, pluginStateLoaded]);
+  }, [isNativePlugin, patchStateJson, selectedPreset, pluginStateLoaded]);
 
   useEffect(() => {
     const flushPatchState = () => {
       if (!isNativePlugin || !pluginStateLoaded || presetLoadingRef.current) return;
       try {
-        bridgeRef.current?.saveNativePluginState(JSON.parse(patchStateRef.current));
+        bridgeRef.current?.saveNativePluginState(snapshotPatchState());
       } catch (error) {
         console.error('[LayerForge] Could not save the patch state before closing:', error);
       }
@@ -621,7 +631,7 @@ export default function App() {
     let info;
     try {
       if (bridgeRef.current.isNativePlugin) {
-        bridgeRef.current.saveNativePluginState(JSON.parse(patchStateRef.current));
+        bridgeRef.current.saveNativePluginState(snapshotPatchState());
       }
       info = await bridgeRef.current.loadSampleFile(idx, file);
     } catch (error) {
@@ -958,6 +968,7 @@ export default function App() {
         </div>
 
         <div className="actions">
+          <div className="topbar-row">
           {isNativePlugin && (
             <PresetBar
               presets={savedPresets}
@@ -983,6 +994,8 @@ export default function App() {
               }}
             />
           )}
+          </div>
+          <div className="topbar-row">
           <div className="topbar-group" role="group" aria-label="Audio">
             <button
               className={`topbar-button topbar-hit ${triggered ? 'is-active' : ''}`}
@@ -1043,6 +1056,7 @@ export default function App() {
             onDiagnostics={() => setShowDiagnostics((open) => !open)}
             diagnosticsCount={diagnostics.length}
           />
+          </div>
         </div>
       </header>
 

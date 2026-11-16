@@ -3366,3 +3366,60 @@ input {
   display: flex;
   gap: 6px;
 }
+
+/* Top bar: two fixed rows with fixed-width slots so nothing shifts on status changes */
+.actions {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.topbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 38px;
+}
+
+.topbar-row > * {
+  flex: 0 0 auto;
+}
+
+.topbar-button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preset-select select {
+  width: 170px;
+  max-width: 170px;
+}
+
+.preset-status {
+  display: inline-block;
+  width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-hit {
+  width: 128px;
+}
+
+.topbar-row .topbar-group > .topbar-button:nth-child(2) {
+  width: 138px;
+}
+
+.topbar-ready {
+  width: 138px;
+  min-width: 138px;
+}
+
+.topbar-row .topbar-group > .topbar-button:nth-child(4) {
+  width: 80px;
+}

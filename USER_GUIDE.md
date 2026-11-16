@@ -239,7 +239,10 @@ signal cannot be split into independent per-source contributions.
 - **PRESET** drop-down: choosing a preset loads it immediately. **SAVE** writes
   the current patch and samples as a new self-contained `.lfpreset` (not a
   rendered WAV). **SAVE OVER** replaces the selected preset after confirmation;
-  the old contents cannot be recovered. The library folder is:
+  the old contents cannot be recovered. The selected preset name is stored
+  with the host project state, so it is still shown after the editor is closed
+  and reopened (the patch itself was already restored; if you edited it, the
+  name only shows which preset you started from). The library folder is:
 
   | OS | Path |
   |---|---|
@@ -260,7 +263,9 @@ signal cannot be split into independent per-source contributions.
   A saved WAV is referenced directly and never deleted. If a DAW rejects it,
   import the saved WAV through its browser. Native drag-out is macOS-only.
 
-The top bar groups presets, audio (HIT, WAV) and a THEME picker (three
+The top bar has two fixed rows (presets, then audio, THEME and MENU) with
+fixed-width controls and a reserved status slot, so nothing moves when a WAV
+is prepared or a preset loads. It also holds a THEME picker (three
 palettes). The **MENU** offers the usage guide (the published manual), hover
 help, initialize, diagnostics and about.
 

@@ -22,7 +22,7 @@ export function PresetBar({
         <span>PRESET</span>
         <select
           id="layerforge-preset-select"
-          value={selected}
+          value={selectedInfo ? selected : ''}
           disabled={!ready || busy}
           onChange={(event) => onSelect(event.target.value)}
           aria-label="Saved LayerForge presets. Selecting one loads it."
@@ -55,9 +55,7 @@ export function PresetBar({
           : 'Delete the selected preset'}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5" /></svg>
       </button>
-      {status && (
-        <output className="preset-status" role="status" title={error}>{status}</output>
-      )}
+      <output className="preset-status" role="status" title={error || status}>{status}</output>
     </div>
   );
 }
