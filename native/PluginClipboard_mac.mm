@@ -48,6 +48,8 @@ bool writeWavToPasteboard(NSPasteboard *pasteboard, const layerforge::WavData &w
     const bool hasFileList = [pasteboard setPropertyList:@[ path ] forType:NSFilenamesPboardType];
     const bool hasWav = [pasteboard setData:data forType:@"com.microsoft.waveform-audio"];
     const bool hasSound = [pasteboard setData:data forType:NSPasteboardTypeSound];
+    NSLog(@"LayerForge transfer: clipboard %@ url=%d list=%d wav=%d sound=%d", path, hasUrl, hasFileList, hasWav,
+          hasSound);
     return hasUrl || hasFileList || hasWav || hasSound;
 }
 
@@ -113,6 +115,7 @@ struct WavDragViewState
 
 - (void)mouseDown:(NSEvent *)event
 {
+    NSLog(@"LayerForge transfer: mouseDown");
     if (state != nullptr)
     {
         state->dragAttempted = false;
@@ -131,6 +134,7 @@ struct WavDragViewState
         return;
 
     state->dragAttempted = true;
+    NSLog(@"LayerForge transfer: drag threshold reached");
     if (state->wav == nullptr || state->wav->bytes.empty())
     {
         [self notifyStatus:"dragFailed" error:"The prepared WAV is no longer available"];
@@ -189,6 +193,7 @@ struct WavDragViewState
         return;
     }
 
+    NSLog(@"LayerForge transfer: drag session started for %@", path);
     session.animatesToStartingPositionsOnCancelOrFail = YES;
     session.draggingFormation = NSDraggingFormationNone;
     [self notifyStatus:"dragStarted" error:""];
@@ -197,6 +202,7 @@ struct WavDragViewState
 - (void)mouseUp:(NSEvent *)event
 {
     juce::ignoreUnused(event);
+    NSLog(@"LayerForge transfer: mouseUp (dragAttempted=%d)", state != nullptr && state->dragAttempted);
     if (state == nullptr || state->dragAttempted)
         return;
 
@@ -221,6 +227,7 @@ struct WavDragViewState
               operation:(NSDragOperation)operation
 {
     juce::ignoreUnused(session, screenPoint);
+    NSLog(@"LayerForge transfer: drag ended, operation=%lu", (unsigned long)operation);
     // DAWs reference or import the file after the drop, so keep it until the next
     // drag or until the editor closes.
     const bool hadTempFile = state->dragTempFile != juce::File() && state->dragTempFile.existsAsFile();
