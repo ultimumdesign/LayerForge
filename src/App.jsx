@@ -293,6 +293,9 @@ export default function App() {
     const observer =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateTarget);
     observer?.observe(target);
+    // Siblings can move the button without resizing it (preset status, wrapping).
+    const actions = target.closest('.actions');
+    actions?.querySelectorAll(':scope > *, .topbar-group > *').forEach((node) => observer?.observe(node));
     window.addEventListener('resize', updateTarget);
     window.addEventListener('scroll', updateTarget, true);
     updateTarget();
