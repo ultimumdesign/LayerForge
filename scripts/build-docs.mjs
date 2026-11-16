@@ -1,5 +1,5 @@
-// Builds the online manual: a static HTML site (index.html + one page per
-// document) and a Markdown set for the GitHub wiki.
+// Builds the online manual as a static HTML site (index.html + one page per
+// document) for GitHub Pages.
 //   node scripts/build-docs.mjs [outputDir]   (default: build/docs)
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, resolve } from 'node:path';
@@ -14,12 +14,12 @@ const blobBase = `https://github.com/${repo}/blob/${ref}/`;
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 
 const pages = [
-  { src: 'README.md', slug: 'overview', wiki: 'Home', title: 'Overview' },
-  { src: 'USER_GUIDE.md', slug: 'user-guide', wiki: 'User-Guide', title: 'User Guide' },
-  { src: 'docs/DSP.md', slug: 'dsp-reference', wiki: 'DSP-Reference', title: 'DSP Reference' },
-  { src: 'docs/ARCHITECTURE.md', slug: 'architecture', wiki: 'Architecture', title: 'Architecture' },
-  { src: 'CONTRIBUTING.md', slug: 'contributing', wiki: 'Contributing', title: 'Contributing' },
-  { src: 'RELEASING.md', slug: 'releasing', wiki: 'Releasing', title: 'Releasing' }
+  { src: 'README.md', slug: 'overview', title: 'Overview' },
+  { src: 'USER_GUIDE.md', slug: 'user-guide', title: 'User Guide' },
+  { src: 'docs/DSP.md', slug: 'dsp-reference', title: 'DSP Reference' },
+  { src: 'docs/ARCHITECTURE.md', slug: 'architecture', title: 'Architecture' },
+  { src: 'CONTRIBUTING.md', slug: 'contributing', title: 'Contributing' },
+  { src: 'RELEASING.md', slug: 'releasing', title: 'Releasing' }
 ];
 const bySrc = new Map(pages.map((page) => [page.src, page]));
 
@@ -36,9 +36,9 @@ function resolveLink(from, href) {
   return { page: bySrc.get(target), target, hash: hash ? `#${hash}` : '' };
 }
 
-function renderer(page, mode) {
+function renderer(page) {
   const used = new Map();
-  const marked = new Marked({
+  return new Marked({
     gfm: true,
     renderer: {
       heading({ tokens, depth }) {
@@ -54,27 +54,12 @@ function renderer(page, mode) {
         const link = resolveLink(page.src, href);
         let target = href;
         if (link) {
-          if (link.page) {
-            target = mode === 'html' ? `${link.page.slug}.html${link.hash}` : `${link.page.wiki}${link.hash}`;
-          } else {
-            target = `${blobBase}${link.target}${link.hash}`;
-          }
+          target = link.page ? `${link.page.slug}.html${link.hash}` : `${blobBase}${link.target}${link.hash}`;
         }
         const attrs = title ? ` title="${escapeHtml(title)}"` : '';
         return `<a href="${escapeHtml(target)}"${attrs}>${inner}</a>`;
       }
     }
-  });
-  return marked;
-}
-
-function wikiMarkdown(page, markdown) {
-  // Rewrite relative Markdown links so they resolve inside the wiki or on GitHub.
-  return markdown.replace(/(?<!!)\[([^\]]+)\]\(([^)\s]+)\)/g, (whole, label, href) => {
-    const link = resolveLink(page.src, href);
-    if (!link) return whole;
-    const target = link.page ? `${link.page.wiki}${link.hash}` : `${blobBase}${link.target}${link.hash}`;
-    return `[${label}](${target})`;
   });
 }
 
@@ -130,29 +115,22 @@ function firstParagraph(markdown) {
 }
 
 rmSync(out, { recursive: true, force: true });
-mkdirSync(join(out, 'site'), { recursive: true });
-mkdirSync(join(out, 'wiki'), { recursive: true });
+mkdirSync(out, { recursive: true });
 
 const sources = pages.map((page) => ({ page, markdown: readFileSync(join(root, page.src), 'utf8') }));
 
 for (const { page, markdown } of sources) {
-  const body = renderer(page, 'html').parse(markdown);
-  writeFileSync(join(out, 'site', `${page.slug}.html`), shell({ title: page.title, current: page.slug, body }));
-  writeFileSync(join(out, 'wiki', `${page.wiki}.md`), wikiMarkdown(page, markdown));
+  const body = renderer(page).parse(markdown);
+  writeFileSync(join(out, `${page.slug}.html`), shell({ title: page.title, current: page.slug, body }));
 }
 
 const cards = sources.map(({ page, markdown }) =>
   `<li><a href="${page.slug}.html"><strong>${escapeHtml(page.title)}</strong><span>${escapeHtml(firstParagraph(markdown))}</span></a></li>`
 ).join('\n');
-writeFileSync(join(out, 'site', 'index.html'), shell({
+writeFileSync(join(out, 'index.html'), shell({
   title: 'Manual index',
   current: 'index',
   body: `<h1>LayerForge manual</h1>\n<p>Documentation for LayerForge ${escapeHtml(version)}, a drum layering plug-in.</p>\n<ul class="cards">\n${cards}\n</ul>`
 }));
-
-const index = pages.map((page) => `- [${page.title}](${page.wiki})`).join('\n');
-writeFileSync(join(out, 'wiki', '_Sidebar.md'), `**LayerForge manual**\n\n${index}\n`);
-writeFileSync(join(out, 'wiki', '_Footer.md'),
-  `Generated from [the repository docs](https://github.com/${repo}/tree/${ref}) — edit them there, not in the wiki.\n`);
 
 console.log(`Built ${pages.length} pages into ${out}`);

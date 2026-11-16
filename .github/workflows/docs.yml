@@ -48,48 +48,27 @@ jobs:
       - name: Install Markdown renderer
         run: npm install --no-save --no-package-lock --ignore-scripts marked@15.0.12
 
-      - name: Build HTML manual and wiki pages
+      - name: Build HTML manual
         run: node scripts/build-docs.mjs build/docs
 
-      - name: Upload manual
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
-          name: manual
           path: build/docs
-          if-no-files-found: error
 
-  wiki:
-    name: Publish to wiki
+  deploy:
+    name: Deploy to GitHub Pages
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Download manual
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: manual
-          path: build/docs
-
-      # The wiki is its own git repository. GitHub only creates it once the
-      # first page exists, so create any page in the Wiki tab before the first run.
-      - name: Push pages to the wiki
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git" wiki
-          find wiki -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
-          cp build/docs/wiki/* wiki/
-          cd wiki
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Wiki already up to date"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "docs: sync manual from ${SHA}"
-          git push
+      # Requires Settings > Pages > Source set to "GitHub Actions".
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
