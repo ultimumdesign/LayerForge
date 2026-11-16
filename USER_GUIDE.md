@@ -253,8 +253,10 @@ signal cannot be split into independent per-source contributions.
   (regardless of host sample rate) from a full-velocity hit. Prepare again after
   any change. **SAVE WAV** lets you choose a destination; nothing is written
   automatically.
-- **COPY / DRAG WAV** uses the clipboard or, on macOS, a file promise until a
-  WAV is saved; afterwards a file reference can be used. If a DAW rejects it,
+- **COPY / DRAG WAV** gives the DAW a real file. If the WAV is unsaved, a
+  temporary copy is written only for the transfer: it is deleted when the drag
+  ends, or, for a clipboard copy, on the next copy or when the editor closes.
+  A saved WAV is referenced directly and never deleted. If a DAW rejects it,
   import the saved WAV through its browser. Native drag-out is macOS-only.
 
 The top bar groups presets, audio (HIT, WAV) and a THEME picker (three
@@ -263,7 +265,7 @@ help, initialize, diagnostics and about.
 
 **Resetting module knobs.** Open a signal-chain module's gear dialog and press
 **RESET KNOBS** to restore its knobs to defaults after confirmation. On/off
-state, signal-chain position, noise trim/envelope, mute and solo are kept. LayerForge does not write export caches
+state, signal-chain position, noise trim/envelope, mute and solo are kept. Apart from those transfer files, LayerForge does not write export caches
 or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Troubleshooting

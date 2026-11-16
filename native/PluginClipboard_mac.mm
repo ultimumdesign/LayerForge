@@ -8,35 +8,47 @@
 
 namespace
 {
+juce::File clipboardTempFile;
+
+void removeClipboardTempFile()
+{
+    if (clipboardTempFile != juce::File())
+        clipboardTempFile.getParentDirectory().deleteRecursively();
+    clipboardTempFile = juce::File();
+}
+
 bool writeWavToPasteboard(NSPasteboard *pasteboard, const layerforge::WavData &wav)
 {
     if (wav.bytes.empty())
         return false;
 
     NSData *data = [NSData dataWithBytes:wav.bytes.data() length:wav.bytes.size()];
-    const bool saved = wav.savedFile != juce::File();
-    NSString *path = nil;
-    if (saved)
+    removeClipboardTempFile();
+    auto file = wav.savedFile;
+    if (file != juce::File() && !file.existsAsFile())
+        return false;
+    if (file == juce::File())
     {
-        if (!wav.savedFile.existsAsFile())
+        // Lives only until the next copy or until the editor closes.
+        file = layerforge::writeTemporaryWavFile(wav);
+        if (file == juce::File())
             return false;
-        path = [NSString stringWithUTF8String:wav.savedFile.getFullPathName().toRawUTF8()];
-        if (path == nil)
-            return false;
+        clipboardTempFile = file;
+    }
+    NSString *path = [NSString stringWithUTF8String:file.getFullPathName().toRawUTF8()];
+    if (path == nil)
+    {
+        removeClipboardTempFile();
+        return false;
     }
 
     [pasteboard clearContents];
-    bool hasFile = false;
-    if (saved)
-    {
-        NSURL *url = [NSURL fileURLWithPath:path];
-        const bool hasUrl = [pasteboard writeObjects:@[ url ]];
-        const bool hasFileList = [pasteboard setPropertyList:@[ path ] forType:NSFilenamesPboardType];
-        hasFile = hasUrl || hasFileList;
-    }
+    NSURL *url = [NSURL fileURLWithPath:path];
+    const bool hasUrl = [pasteboard writeObjects:@[ url ]];
+    const bool hasFileList = [pasteboard setPropertyList:@[ path ] forType:NSFilenamesPboardType];
     const bool hasWav = [pasteboard setData:data forType:@"com.microsoft.waveform-audio"];
     const bool hasSound = [pasteboard setData:data forType:NSPasteboardTypeSound];
-    return saved ? hasFile : hasWav || hasSound;
+    return hasUrl || hasFileList || hasWav || hasSound;
 }
 
 struct WavDragViewState
@@ -45,49 +57,16 @@ struct WavDragViewState
     std::string key;
     layerforge::WavActionStatusCallback statusCallback;
     bool dragAttempted = false;
+    juce::File dragTempFile;
+
+    void removeDragTempFile()
+    {
+        if (dragTempFile != juce::File())
+            dragTempFile.getParentDirectory().deleteRecursively();
+        dragTempFile = juce::File();
+    }
 };
 } // namespace
-
-@interface LayerForgeWavPromise : NSObject <NSFilePromiseProviderDelegate>
-{
-  @public
-    layerforge::WavDataPtr wav;
-}
-@end
-
-@implementation LayerForgeWavPromise
-
-- (NSString *)filePromiseProvider:(NSFilePromiseProvider *)provider fileNameForType:(NSString *)fileType
-{
-    juce::ignoreUnused(provider, fileType);
-    return [NSString stringWithUTF8String:wav->filename.toRawUTF8()];
-}
-
-- (void)filePromiseProvider:(NSFilePromiseProvider *)provider
-          writePromiseToURL:(NSURL *)url
-          completionHandler:(void (^)(NSError *))completionHandler
-{
-    juce::ignoreUnused(provider);
-    __block NSError *writeError = nil;
-    NSError *coordinationError = nil;
-    NSFileCoordinator *coordinator = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
-    [coordinator coordinateWritingItemAtURL:url
-                                    options:NSFileCoordinatorWritingForReplacing
-                                      error:&coordinationError
-                                 byAccessor:^(NSURL *destination) {
-                                   NSData *data = [NSData dataWithBytes:wav->bytes.data() length:wav->bytes.size()];
-                                   if (![data writeToURL:destination options:0 error:&writeError] && writeError == nil)
-                                       writeError = [NSError errorWithDomain:NSCocoaErrorDomain
-                                                                        code:NSFileWriteUnknownError
-                                                                    userInfo:nil];
-                                 }];
-    completionHandler(coordinationError != nil ? coordinationError : writeError);
-#if !__has_feature(objc_arc)
-    [coordinator release];
-#endif
-}
-
-@end
 
 @interface LayerForgeWavDragNSView : NSView <NSDraggingSource>
 {
@@ -164,33 +143,36 @@ struct WavDragViewState
         return;
     }
 
-    NSDraggingItem *dragItem = nil;
-    LayerForgeWavPromise *delegate = nil;
-    NSFilePromiseProvider *provider = nil;
-    const auto savedFile = state->wav->savedFile;
-    if (savedFile != juce::File())
+    state->removeDragTempFile();
+    auto dragFile = state->wav->savedFile;
+    if (dragFile != juce::File())
     {
-        if (!savedFile.existsAsFile())
+        if (!dragFile.existsAsFile())
         {
             [self notifyStatus:"dragFailed" error:"The saved WAV is no longer available"];
             return;
         }
-        NSString *path = [NSString stringWithUTF8String:savedFile.getFullPathName().toRawUTF8()];
-        if (path == nil)
-        {
-            [self notifyStatus:"dragFailed" error:"Could not convert the saved WAV path"];
-            return;
-        }
-        dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:path]];
     }
     else
     {
-        delegate = [[LayerForgeWavPromise alloc] init];
-        delegate->wav = state->wav;
-        provider = [[NSFilePromiseProvider alloc] initWithFileType:@"com.microsoft.waveform-audio" delegate:delegate];
-        provider.userInfo = delegate;
-        dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:provider];
+        // Unsaved audio is written to a temporary file that exists only until this drag ends.
+        const auto file = layerforge::writeTemporaryWavFile(*state->wav);
+        if (file == juce::File())
+        {
+            [self notifyStatus:"dragFailed" error:"Could not create the temporary WAV for dragging"];
+            return;
+        }
+        state->dragTempFile = file;
+        dragFile = file;
     }
+    NSString *path = [NSString stringWithUTF8String:dragFile.getFullPathName().toRawUTF8()];
+    if (path == nil)
+    {
+        state->removeDragTempFile();
+        [self notifyStatus:"dragFailed" error:"Could not convert the WAV path"];
+        return;
+    }
+    NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:path]];
     const auto windowLocation = [event locationInWindow];
     const auto dragRect = [self convertRect:NSMakeRect(windowLocation.x - 16.0, windowLocation.y - 16.0, 32.0, 32.0)
                                    fromView:nil];
@@ -198,12 +180,11 @@ struct WavDragViewState
     NSDraggingSession *session = [self beginDraggingSessionWithItems:@[ dragItem ] event:event source:self];
 #if !__has_feature(objc_arc)
     [dragItem release];
-    [provider release];
-    [delegate release];
 #endif
 
     if (session == nil)
     {
+        state->removeDragTempFile();
         [self notifyStatus:"dragFailed" error:"macOS did not start the WAV drag session"];
         return;
     }
@@ -240,6 +221,7 @@ struct WavDragViewState
               operation:(NSDragOperation)operation
 {
     juce::ignoreUnused(session, screenPoint);
+    state->removeDragTempFile();
     if (operation == NSDragOperationNone)
         [self notifyStatus:"dropRejected" error:"The drop target did not accept the WAV file"];
     else
@@ -256,6 +238,11 @@ bool copyWavToClipboard(const WavData &wav)
     {
         return writeWavToPasteboard([NSPasteboard generalPasteboard], wav);
     }
+}
+
+void releaseClipboardTempFile()
+{
+    removeClipboardTempFile();
 }
 
 void attachWavDragView(juce::NSViewComponent &component, WavActionStatusCallback statusCallback)

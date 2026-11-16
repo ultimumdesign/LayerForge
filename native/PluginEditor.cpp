@@ -919,6 +919,7 @@ LayerForgeAudioProcessorEditor::~LayerForgeAudioProcessorEditor()
 {
     stopTimer();
     audioProcessor.setOutputTrace(false, 0);
+    layerforge::releaseClipboardTempFile();
 #if JUCE_MAC
     layerforge::detachWavDragView(nativeWavDragView->getView());
 #endif
