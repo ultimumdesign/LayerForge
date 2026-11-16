@@ -243,6 +243,30 @@ struct WavDragViewState
 
 @end
 
+@interface LayerForgeFileDragSource : NSObject <NSDraggingSource>
+@property(nonatomic) std::function<void(bool)> finished;
+@end
+
+@implementation LayerForgeFileDragSource
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session
+    sourceOperationMaskForDraggingContext:(NSDraggingContext)context
+{
+    juce::ignoreUnused(session, context);
+    // Hosts pick the operation they support; Live does not accept a Copy-only source.
+    return NSDragOperationEvery;
+}
+
+- (void)draggingSession:(NSDraggingSession *)session
+           endedAtPoint:(NSPoint)screenPoint
+              operation:(NSDragOperation)operation
+{
+    juce::ignoreUnused(session, screenPoint);
+    NSLog(@"LayerForge transfer: web drag ended, operation=%lu", (unsigned long)operation);
+    if (self.finished)
+        self.finished(operation != NSDragOperationNone);
+}
+@end
+
 namespace layerforge
 {
 bool copyWavToClipboard(const WavData &wav)
@@ -253,7 +277,7 @@ bool copyWavToClipboard(const WavData &wav)
     }
 }
 
-bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void()> finished)
+bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void(bool)> finished)
 {
     static juce::File webDragTempFile;
     if (webDragTempFile != juce::File())
@@ -271,10 +295,23 @@ bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function
             return false;
         webDragTempFile = file;
     }
-    const auto started = juce::DragAndDropContainer::performExternalDragDropOfFiles({file.getFullPathName()}, false,
-                                                                                    &source, std::move(finished));
-    NSLog(@"LayerForge transfer: web drag started=%d %s", started, file.getFullPathName().toRawUTF8());
-    return started;
+
+    auto *peer = source.getPeer();
+    NSView *view = peer != nullptr ? (__bridge NSView *)peer->getNativeHandle() : nil;
+    NSEvent *event = [[view window] currentEvent];
+    if (view == nil || event == nil)
+        return false;
+
+    NSString *path = [NSString stringWithUTF8String:file.getFullPathName().toRawUTF8()];
+    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:path]];
+    const auto location = [event locationInWindow];
+    [item setDraggingFrame:[view convertRect:NSMakeRect(location.x - 16.0, location.y - 16.0, 32.0, 32.0) fromView:nil]
+                  contents:[[NSWorkspace sharedWorkspace] iconForFile:path]];
+    LayerForgeFileDragSource *dragSource = [[LayerForgeFileDragSource alloc] init];
+    dragSource.finished = std::move(finished);
+    NSDraggingSession *session = [view beginDraggingSessionWithItems:@[ item ] event:event source:dragSource];
+    NSLog(@"LayerForge transfer: web drag started=%d %@", session != nil, path);
+    return session != nil;
 }
 
 void releaseClipboardTempFile()

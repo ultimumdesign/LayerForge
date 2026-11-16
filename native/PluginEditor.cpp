@@ -739,9 +739,10 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                         return;
                     }
                     const auto weak = juce::Component::SafePointer<juce::Component>(this);
-                    if (!layerforge::beginWavFileDrag(*this, *staged->second, [weak, key, this] {
+                    if (!layerforge::beginWavFileDrag(*this, *staged->second, [weak, key, this](bool accepted) {
                             if (weak != nullptr)
-                                emitWavActionStatus(webView.get(), key, "dropAccepted", {});
+                                emitWavActionStatus(webView.get(), key,
+                                                    accepted ? "dropAccepted" : "dropRejected", {});
                         })) {
                         emitWavActionStatus(webView.get(), key, "dragFailed",
                                             "macOS did not start the WAV drag");

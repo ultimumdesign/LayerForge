@@ -55,7 +55,7 @@ void releaseClipboardTempFile();
 #if JUCE_MAC
 // Starts a native file drag from the editor window using the current mouse event.
 // Returns false if macOS refuses to start the drag.
-bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void()> finished);
+bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function<void(bool)> finished);
 void attachWavDragView(juce::NSViewComponent &component, WavActionStatusCallback statusCallback);
 void setWavDragViewTarget(void *nativeView, const std::string &key, WavDataPtr wav);
 void detachWavDragView(void *nativeView);
