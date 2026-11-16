@@ -1,0 +1,95 @@
+name: Publish manual
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - USER_GUIDE.md
+      - CONTRIBUTING.md
+      - RELEASING.md
+      - docs/**
+      - scripts/build-docs.mjs
+      - .github/workflows/docs.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - README.md
+      - USER_GUIDE.md
+      - CONTRIBUTING.md
+      - RELEASING.md
+      - docs/**
+      - scripts/build-docs.mjs
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build manual
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install Markdown renderer
+        run: npm install --no-save --no-package-lock --ignore-scripts marked@15.0.12
+
+      - name: Build HTML manual and wiki pages
+        run: node scripts/build-docs.mjs build/docs
+
+      - name: Upload manual
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manual
+          path: build/docs
+          if-no-files-found: error
+
+  wiki:
+    name: Publish to wiki
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download manual
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: manual
+          path: build/docs
+
+      # The wiki is its own git repository. GitHub only creates it once the
+      # first page exists, so create any page in the Wiki tab before the first run.
+      - name: Push pages to the wiki
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git" wiki
+          find wiki -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
+          cp build/docs/wiki/* wiki/
+          cd wiki
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: sync manual from ${SHA}"
+          git push

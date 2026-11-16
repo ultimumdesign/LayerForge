@@ -86,6 +86,9 @@ embedded assets).
 - Update the [user guide](USER_GUIDE.md) for user-visible changes and
   [docs/DSP.md](docs/DSP.md) when ranges, defaults or algorithms change. Keep
   the control tables in sync with `dsp/parameters.js`.
+  The **Publish manual** workflow builds these docs into an HTML manual (index
+  plus one page per document, downloadable as the `manual` artifact) and syncs
+  them to the repository wiki on `main`. Edit the docs here, never in the wiki.
 - Do not include secrets, proprietary samples, or unrelated formatting changes.
 - Keep license and copyright notices intact.
 
