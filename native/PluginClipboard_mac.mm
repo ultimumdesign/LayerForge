@@ -65,11 +65,6 @@ struct WavDragViewState
             dragTempFile.getParentDirectory().deleteRecursively();
         dragTempFile = juce::File();
     }
-
-    ~WavDragViewState()
-    {
-        removeDragTempFile();
-    }
 };
 } // namespace
 
