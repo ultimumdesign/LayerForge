@@ -55,6 +55,12 @@ Use Conventional Commit messages for PR titles and commits:
 | `feat!: replace the preset format` or a `BREAKING CHANGE:` footer | Major |
 | `docs: clarify the controls`, `test: cover trim`, `chore: update tooling` | No release by default |
 
+Push validation skips GitHub squash-merge messages with a non-conventional
+`title (#number)` and a generated bullet-list body. PR titles and ordinary
+commits are still checked. Use a Conventional Commit PR title when squash
+merging: Release Please cannot infer a version bump from a non-conventional
+squash title, even when its body lists conventional commits.
+
 Release Please uses `.release-please-manifest.json` as the starting version and
 opens a PR that updates `package.json`, `package-lock.json`, the manifest, and
 `CHANGELOG.md`. Do not manually bump the version for ordinary changes. Merge the

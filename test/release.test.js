@@ -8,6 +8,17 @@ import { test } from 'node:test';
 
 const script = fileURLToPath(new URL('../scripts/check-release.mjs', import.meta.url));
 
+test('commitlint accepts GitHub squash messages without weakening ordinary commit checks', () => {
+  const cli = fileURLToPath(new URL('../node_modules/@commitlint/cli/cli.js', import.meta.url));
+  const lint = (input) => spawnSync(process.execPath, [cli], { input, encoding: 'utf8' });
+
+  assert.equal(lint('Align commitlint footer and body line limits (#7)\n\n* Initial plan\n\n* fix: allow long commit footer line\n').status, 0);
+  assert.notEqual(lint('Align commitlint footer and body line limits (#7)\n').status, 0);
+  assert.notEqual(lint('Initial plan\n').status, 0);
+  assert.equal(lint('fix: allow long commit footer line\n').status, 0);
+  assert.notEqual(lint('fix: ' + 'x'.repeat(150) + ' (#7)\n\n* Initial plan\n').status, 0);
+});
+
 test('release builds generate the native graph after clearing the build cache', () => {
   const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
   const clear = workflow.indexOf('run: rm -rf native/build');
