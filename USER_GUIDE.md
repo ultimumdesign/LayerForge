@@ -1,244 +1,268 @@
 # LayerForge User Guide
 
-## Getting started
+LayerForge layers up to three samples and a noise synth into one drum hit. This
+guide covers the interface and workflow; for the underlying algorithms see the
+[DSP reference](docs/DSP.md).
 
-1. Load LayerForge on a MIDI track or drum rack and open its editor.
-2. Click an empty channel waveform to browse for a sample, or drop an audio
-   file onto the waveform. Drop another file there to replace it. The filename
-   appears in the channel's LED-style display. Click it to load a replacement
-   or reveal the original file in Finder / the file manager when its location
-   is known. Native browsing records the location. If a dropped or restored
-   sample has no known location, choose the original file when prompted;
-   this records its location without replacing the loaded audio. Browser
-   previews cannot reveal files in the file manager.
-   Long filenames scroll in the display; reduced-motion settings disable scrolling.
-3. Trigger a note, or press Space when a text field or button is not focused.
-   The noise synth is off by default; select **OFF · ENABLE** to turn it on.
-4. Trim the sample, shape its envelope, and set its MIX. Add other layers and
-   adjust the noise and master as needed.
-5. Use **PREPARE WAV** to render a hit, then **SAVE WAV** to choose a location.
+**Contents:** [Quick start](#quick-start) · [Signal flow](#signal-flow) ·
+[Sample channels](#sample-channels) · [Waveform editing](#waveform-editing) ·
+[Noise synth](#noise-synth) · [Master bus](#master-bus) ·
+[Mix Lab](#mix-lab-and-live-trace) · [Patches, presets and export](#patches-presets-and-wav-export) ·
+[Troubleshooting](#troubleshooting) · [Limitations](#limitations-and-validation)
 
-The rack follows the signal path: three sample channels feed the **SIGNAL
-CHAIN**, where noise can join, followed by the **OUTPUT STAGE** controls
-and **MIX LAB** output display. Expand the waveform editors for
-more room. Popup controls wrap to fit the window; scroll vertically if the
-contents do not fit the available height.
+## Quick start
 
-## Signal flow and stereo
+1. Load LayerForge on a MIDI track (or a drum-rack pad) and open its editor.
+2. **Load a sample:** click an empty channel waveform to browse, or drop an
+   audio file on it. Dropping on a loaded channel replaces the sample but keeps
+   that channel's envelope and processing settings. Mono and stereo files work;
+   files with more than two channels are rejected.
+3. **Audition:** play any MIDI note, or press **Space** when no text field or
+   button has focus. Every note triggers the same sound; note pitch is ignored
+   and velocity scales the level.
+4. **Shape:** trim the sample, draw the gain envelope, set MIX, then add other
+   layers. The noise synth is off by default; select **OFF · ENABLE** to use it.
+5. **Export (optional):** **PREPARE WAV**, then **SAVE WAV**.
 
-Each sample channel plays its trimmed source with pitch, timing and envelope
-settings, then applies input gain, filtering, transient shaping, clipping,
-stereo width and MIX. The noise path runs through filtering, an envelope,
-clipping and MIX. The channels are added sample by sample, separately for
-left and right. The master bus adds noise and applies optional saturation and
-stereo-linked glue compression in the selected order, then clipper, ceiling
-and output gain.
+The rack follows the signal path: three sample channels → **SIGNAL CHAIN**
+(noise, saturation, glue) → **OUTPUT STAGE** → **MIX LAB** display. Expand the
+waveform editors for more room; scroll vertically if the editor is shorter than
+its contents.
 
-New channels start with a flat envelope, unity gain and bypassed channel
-filters and clipping. The audio renderer crossfades graph changes, so an
-immediate first audition may fade in briefly. Replacing a
-sample keeps that channel's existing envelope and processing settings.
-The noise synth and master processing remain active independently.
+The channel filename display shows the loaded file. Click it to load a
+replacement or reveal the original in Finder / the file manager when the
+location is known. If a dropped or restored sample has no known location you
+are asked to pick the original file; this records its location without
+changing the audio. Browser previews cannot reveal files. Long names scroll
+unless reduced-motion is enabled.
 
-Mono samples feed both output sides; stereo samples retain their left and
-right channels. Files with more than two channels are rejected. **WIDTH** is
-mid/side width: 0 collapses to mono, 1 preserves the stereo image, and 2
-widens it. Widening can reduce mono compatibility or increase peaks, so check
-the mix and output meter. Noise is mono and feeds both sides.
+## Signal flow
 
-The saturator and compressor are bypassed by default, including when restoring
-older patches without those settings. Select **OFF · ENABLE** to activate
-either one and **ON · BYPASS** to turn it off again. Channel clipping engages
-above 0 dB CLIP DRV; the master clipper remains active. The master ceiling scales the clipped signal;
-it is not a limiter, and increasing OUTPUT can still exceed 0 dBFS.
+```text
+Channel 1 ─┐   sample → trim/pitch → envelope → delay → HPF/LPF
+Channel 2 ─┼─► → transient shaper → clipper → width → MIX
+Channel 3 ─┘
+              │ sum × velocity
+              ▼
+   noise ▸ saturation ▸ glue   (order adjustable; default shown)
+              ▼
+   master clipper → CEILING → OUTPUT → host
+```
+
+- Channels add together per side. Noise joins the bus at its position in the
+  order, so only effects after it process it.
+- New channels start with a flat envelope, unity gain and bypassed filters and
+  clipping. Graph changes are crossfaded, so the first hit after an edit can
+  fade in briefly.
+- **Stereo:** mono samples feed both sides; stereo samples keep left and right.
+  Noise is mono. **WIDTH** is mid/side: 0 collapses to mono, 1 is unchanged,
+  2 widens. Widening can reduce mono compatibility and raise peaks.
+- The saturator and compressor are **off by default** (also when restoring older
+  patches). Channel clipping engages above 0 dB CLIP DRV; the master clipper is
+  always active. **CEILING** scales the clipped signal and is not a limiter,
+  and a positive **OUTPUT** can exceed 0 dBFS.
 
 ## Sample channels
 
-**M** mutes and **S** solos a channel. Noise has independent enable, mute and
-solo controls; its solo has no effect while the synth is off. When any active
-source is soloed, non-soloed sources are silent. The minus/plus button
-minimizes or expands a strip without changing the sound.
-Restored strips and additional controls fade in briefly; reduced-motion
-settings disable the transition.
-A hollow status light and subdued top border indicate a channel without a
-sample; loaded channels have a filled light. Muted channels are dimmed separately.
+**M** mutes and **S** solos a channel. Noise has its own enable, mute and
+solo; its solo does nothing while the synth is off. When any active source is
+soloed, the others are silent. The minus/plus button collapses a strip without
+changing the sound. A hollow status light and subdued border mark an empty
+channel; loaded channels have a filled light, and muted channels are dimmed.
 
-Drag a knob vertically, Shift-drag for finer adjustment, click its value for
-numeric entry, or double-click the knob to reset it. The sliders icon shows
-additional controls; hiding them leaves modified controls visible. The
-circular-arrow icon resets channel knobs after confirmation while preserving
-the sample, trim, envelope, mute and solo. **EDIT** and **RESET ENV** are
-grouped with these controls. These display preferences last for the editor session.
+**Knobs:** drag vertically, Shift-drag for fine control, click the value to
+type one, double-click to reset. The sliders icon shows or hides extra controls
+(modified controls stay visible). The circular-arrow icon resets the channel's
+knobs after confirmation, keeping the sample, trim, envelope, mute and solo.
+These display preferences last for the editor session.
 
-| Control | Function | Range |
+| Control | Function | Range (default) |
 |---|---|---|
-| PITCH | Playback speed and pitch | -24 to +24 semitones |
-| PLAY DLY | Start delay, not an echo | 0–1000 ms |
-| ATTACK, SUSTAIN | Transient and body shaping | -1 to +1 |
-| HPF, LPF | High- and low-pass filters; bypassed at 20 Hz and 20000 Hz | 20–2000 Hz; 800–20000 Hz |
-| CLIP DRV, SHAPE | Clip input drive and soft/hard blend | 0–24 dB; 0–1 |
-| CLIP GAIN | Waveform-header sample gain before channel processing | -60 to +12 dB |
-| WIDTH | Mid/side stereo width | 0–2 |
-| MIX | Channel level sent to the sum | 0–1.5 |
-| PHASE | Signed timing shift as a fraction of trimmed length | -0.05 to +0.05 |
+| PITCH | Varispeed playback pitch; changes length | −24 to +24 st (0) |
+| PLAY DLY | Start delay (not an echo) | 0–1000 ms (0) |
+| ATTACK / SUSTAIN | Transient and body level | −1 to +1 (0) |
+| HPF | 12 dB/oct high-pass; bypassed at 20 Hz | 20–2000 Hz (20) |
+| LPF | 12 dB/oct low-pass; bypassed at 20 kHz | 800–20000 Hz (20000) |
+| CLIP DRV | Clipper input drive; bypassed at 0 dB | 0–24 dB (0) |
+| SHAPE | Clipper soft (0) to hard (1) | 0–1 (0.25) |
+| CLIP GAIN | Sample gain before channel processing | −60 to +12 dB (0) |
+| WIDTH | Mid/side width | 0–2 (1) |
+| MIX | Level sent to the sum | 0–1.5 (1) |
+| PHASE | Time shift as a fraction of trimmed length | −0.05 to +0.05 (0) |
 
-### Waveform, trim and envelope
+Positive PHASE delays the sample; negative skips into it. The slashed-circle
+icon estimates an offset against the first other loaded sample using their
+left/source channels. It works best for similar recordings; different sounds,
+rates, trims, pitch or processing can mislead it, so listen and fine-tune
+PHASE.
 
-The editable channel waveform shows an offline processed preview together with
-trim handles and the gain envelope. Dim source audio outside the trim provides
-context; processing tails beyond the playable sample appear in the sum.
-Stereo channels are combined into one visual amplitude range, not downmixed
-in the audio path. The preview updates when settings change, not on each hit.
-Use **EDIT WAVE** for a larger source-time view.
+**Moving samples:** the sample-name menu moves a sample to an empty channel or
+swaps two. Source data, names and trims move; envelopes and processing stay with
+the channel.
 
-- Drag IN and OUT to select the playable region without changing the file.
-  Hold **Ctrl** while dragging to snap to a nearby silence boundary.
-  The view resets zoom and recenters on the selection after a trim edit.
-  Use **ZOOM** to magnify the selection, or **FULL** to show the entire sample
-  and extend the selection. **FIT** returns to the selected region.
-  When zoomed in, drag the subtle scrollbar below the waveform to move left or right; horizontal
-  trackpad scrolling and Shift-wheel also pan it. The sum view works the same way.
-- In the expanded channel waveform editor or noise settings, **DETAIL**
-  selects 512, 2048 or 4096 preview bins. This display setting is shared
-  by the channel and noise waveforms and does not change the audio.
-- Drag **CLIP GAIN** in the waveform header to set the source level before
-  channel processing, or type an exact dB value. Double-click the slider or
-  label to reset it to 0 dB.
-- Drag envelope points to shape gain; the bottom is zero gain. Double-click
-  the waveform to add a point and right-click an interior point to remove it.
-  **RESET ENV** restores a flat, full-gain envelope.
-- Drag the handle in the middle of a sloped segment to bend its curve. Flat
-  segments have no curve handle. Focus a handle and use arrow keys or Home to
-  adjust or reset it. Ctrl+[ and Ctrl+] adjust the segment after a focused
-  point; Home on a point sets it to zero.
-- The slashed-circle icon estimates a timing offset against the first other
-  loaded sample, using their left/source channels. It is most useful for
-  similar recordings. Different sounds, sample rates, trims, pitch and
-  processing may make the estimate misleading; listen and adjust PHASE.
-- Use the sample-name menu to move a sample to an empty channel or swap
-  samples between channels. Source data, names and trims move; envelopes and
-  processing controls remain with their channels.
+## Waveform editing
 
-## Signal chain and output controls
+The channel waveform shows an offline *processed* preview with trim handles and
+the gain envelope. Dimmed audio outside the trim gives context; processing tails
+past the playable sample appear in the sum. Stereo files are drawn as one
+combined range but are not downmixed in the audio path. The preview updates when
+settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
 
-The noise synth provides **FREQ**, **RESO**, **DECAY**, **CLIP DRV** and
-**MIX**. Its waveform in the settings popup shows processed noise and can be
-edited directly, with gain-envelope points, curve handles and reset like a
-sample channel. IN/OUT gates a window within the generated hit without shifting it
-earlier; changing DECAY changes the window's time scale. There is no
-source-file silence snapping for generated noise. The waveform shows an
-offline preview; noise varies on each trigger.
-The synth's enable switch is separate from **M**: enabling a muted synth leaves
-it muted, and disabling it preserves its mute and solo settings. Its settings
-button is available while the synth is on.
+- **Trim:** drag IN and OUT to select the playable region without changing the
+  file. Hold **Ctrl** to snap to a nearby silence boundary. After a trim edit
+  the view recenters on the selection. **ZOOM** magnifies it, **FULL** shows the
+  whole file, **FIT** returns to the selection. When zoomed, drag the scrollbar,
+  use horizontal trackpad scrolling, or Shift-wheel to pan (the sum view works
+  the same way).
+- **DETAIL:** in the expanded editor or noise settings, selects 512, 2048 or
+  4096 preview bins. It is shared by channel and noise waveforms and is
+  display-only.
+- **CLIP GAIN:** drag in the waveform header, or type a dB value. Double-click
+  the slider or label to reset to 0 dB.
+- **Envelope:** drag points to shape gain (the bottom is silence). Double-click
+  to add a point (up to 10 interior points), right-click an interior point to
+  remove it. **RESET ENV** restores a flat, full-gain envelope.
+- **Curves:** drag the handle in the middle of a sloped segment to bend it
+  (flat segments have none). With a handle focused, arrow keys adjust it and
+  Home resets it. Ctrl+[ and Ctrl+] adjust the segment after a focused point;
+  Home on a point sets it to zero.
 
-Use the up/down buttons to reorder noise, saturation and glue. Noise joins the
-bus at its chosen position, so only effects after it process the noise. The
-default order is noise, saturation, glue. The order is saved with the patch.
-The line beside the modules shows the order from channels to output; the
-plus marks where noise joins, and filled markers indicate active modules.
-Use the settings button beside a module's enable switch to open its controls
-in a popup. Saturation and glue settings are available even while bypassed;
-editing them does not enable the effect.
+## Noise synth
 
-The master **SATURATION** has an enable switch, **SAT DRIVE** and dry/wet
-**SAT MIX**. The master
-**GLUE COMPRESSOR** can be enabled independently. Its linked
-stereo detector applies the same gain reduction to both sides. Adjust
-**THRESH**, **RATIO**, **ATTACK** and **RELEASE** before the master clipper.
-The **OUTPUT STAGE** contains **BUS DRIVE**, **SOFT/HARD**,
-**CEILING** and **OUTPUT**, which follow the signal chain.
+White noise through a band-pass filter, shaped by a decay envelope, clipped and
+mixed.
 
-The **OUTPUT PEAK** meter in Mix Lab measures post-output-trim signal in dBFS, holds
-peaks briefly and indicates values above 0 dBFS. **LAST PEAK** holds the
-highest measured peak from the latest audible burst, separated from the next
-by 300 ms below -80 dBFS. Neither is a loudness meter. WAV export clips sample
-values above 0 dBFS.
+| Control | Function | Range (default) |
+|---|---|---|
+| FREQ | Band-pass centre | 150–16000 Hz (4800) |
+| RESO | Band-pass Q | 0.5–10 (1.4) |
+| DECAY | Envelope time (≈ −60 dB) | 5–600 ms (75) |
+| CLIP DRV | Clipper drive | 0–24 dB (3) |
+| MIX | Level | 0–1 (0.22) |
+
+The settings popup shows the processed noise waveform, which can be edited like
+a sample: gain-envelope points, curve handles, reset, and IN/OUT to gate a
+window within the hit (without shifting it earlier). Changing DECAY rescales
+that window. There is no silence snapping. Noise differs on each trigger, and
+the waveform is an offline preview.
+
+Noise length is bounded by the 28 ms trigger gate (audible noise lasts about
+40 ms), so DECAY above ~30 ms mostly changes the curve's slope rather than
+lengthening the sound.
+
+The enable switch is separate from **M**: enabling a muted synth leaves it
+muted, and disabling it keeps its mute and solo. The settings button is
+available only while the synth is on.
+
+## Master bus
+
+**Order.** Use the up/down buttons to reorder noise, saturation and glue. The
+order is saved with the patch (default: noise, saturation, glue). The line
+beside the modules shows the path from channels to output; the plus marks where
+noise joins, and filled markers show active modules. Open a module's settings
+with the button beside its enable switch; saturation and glue settings are
+editable while bypassed, and editing does not enable them.
+
+| Module | Controls | Range (default) |
+|---|---|---|
+| SATURATION | SAT DRIVE, SAT MIX | 0–24 dB (6), 0–1 (1) |
+| GLUE COMPRESSOR | THRESH | −36 to 0 dB (−12) |
+| | RATIO | 1–8:1 (2) |
+| | ATTACK | 1–100 ms (10) |
+| | RELEASE | 30–600 ms (120) |
+| OUTPUT STAGE | BUS DRIVE | 0–24 dB (2) |
+| | SOFT/HARD | 0–1 (0.45) |
+| | CEILING | 0.1–1.0 linear (0.95) |
+| | OUTPUT | −60 to +12 dB (0) |
+
+The glue compressor is stereo-linked: the same gain reduction applies to both
+sides. It has no make-up gain. Use OUTPUT or the saturator to compensate.
+
+**Meters.** **OUTPUT PEAK** (Mix Lab) measures post-OUTPUT signal in dBFS, holds
+peaks briefly and flags values above 0 dBFS. **LAST PEAK** holds the highest peak
+of the latest audible burst (bursts are separated by 300 ms below −80 dBFS).
+Neither is a loudness meter. WAV export clips values above 0 dBFS.
 
 ## Mix Lab and live trace
 
-The main sum shows the processed final output. It displays **RENDERING** until
-the offline preview is ready. That preview uses a full-velocity trigger and
+The main sum shows the processed final output, displaying **RENDERING** until
+the offline preview is ready. The preview uses a full-velocity trigger and
 settled parameters; noise, velocity, overlapping hits, sample rate, parameter
-changes and filter history can make live playback different.
+changes and filter history can make live playback differ.
 
-**TRACE** is on by default. After a hit, its captured live audio replaces the
-static preview; turn TRACE off to return to the preview. The preview remains
-available while trace is armed or if capture fails. Capture retains the last
-hit for up to four seconds, clears when the patch changes, and warns about
-missed data. Play another hit after a gap warning. TRACE affects the sum and
-its expanded comparison, not the channel or noise previews.
+**TRACE** is on by default. After a hit its captured live audio replaces the
+static preview; turn TRACE off to return to the preview. The preview stays
+available while trace is armed or if capture fails. Capture retains the last hit
+for up to four seconds, clears when the patch changes and warns about missed
+data; play another hit after a gap warning. TRACE affects the sum and its
+expanded comparison, not the channel or noise previews.
 
-**EXPAND** compares final output, pre-master sum, each channel and noise.
-All lanes share output time and amplitude scaling; the pre-master lane shows
-the sum of all sources before effects, even when noise is inserted later in
-the bus. Final output is after all master processing.
-Nonlinear master processing prevents the final signal from being divided into
-independent colored source contributions.
+**EXPAND** compares final output, pre-master sum, each channel and noise on a
+shared time and amplitude scale. The pre-master lane is the sum of all sources
+before effects, even when noise is inserted later in the bus; final output is
+after all master processing. Because master processing is nonlinear, the final
+signal cannot be split into independent per-source contributions.
 
-Use **VIEW** for the first 5, 20 or 100 ms of actual samples, or **FULL HIT**
-for peak envelopes. **DETAIL** sets full-hit comparison resolution to 512,
-2048 or 4096 bins. **ZOOM** magnifies the start of the sum timeline. **FIT**
-increases display scale up to 20×; **ACTUAL 1:1** restores unscaled amplitude.
-These controls change the display only.
-
-Channel **SRC** times refer to source positions before pitch and delay; sum
-**OUT** times refer to output. Different time spans, other sources and master
-processing can make the sum look different from a channel. Stereo displays
-show the combined bounds of both sides rather than a separate waveform for
-each side.
+- **VIEW:** first 5, 20 or 100 ms of actual samples, or **FULL HIT** for peak
+  envelopes. **DETAIL** sets full-hit resolution (512, 2048, 4096 bins).
+- **ZOOM** magnifies the start of the timeline; **FIT** raises display scale up
+  to 20×; **ACTUAL 1:1** restores unscaled amplitude. These are display-only.
+- Channel **SRC** times are source positions before pitch and delay; sum **OUT**
+  times are output time. Stereo views show the combined bounds of both sides.
 
 ## Patches, presets and WAV export
 
-- **SYSTEM MENU → INITIALIZE PATCH** resets settings and clears loaded
-  samples after confirmation. Noise returns to disabled; the theme is
-  retained. Existing preset and WAV files are not deleted.
-- Native host project state embeds decoded mono or stereo sample data and
-  settings, so project size grows with sample length. Theme is stored in the
-  project state.
-- **EXPORT PRESET** saves a self-contained `.lfpreset` containing the patch
-  and samples, not a rendered WAV. The preset library uses
-  `~/Library/LayerForge/Presets` on macOS. Copy older presets into that folder
-  and use **REFRESH**; right-click a preset to delete it after confirmation.
-- **PREPARE WAV** renders the current mix in memory as 24-bit, 44.1 kHz
-  stereo audio. Prepare again after changes. **SAVE WAV** explicitly chooses
-  a destination; the plug-in does not automatically write an export file.
-- **COPY / DRAG WAV** uses clipboard audio or, on macOS, a file promise until
-  a WAV is saved. After saving, a file reference can be used. Destination
-  support varies: if a DAW rejects it, import the saved WAV through its
-  browser or drag it from the file manager. Native drag-out is macOS-specific.
+- **INITIALIZE PATCH** (SYSTEM MENU) resets settings and clears samples after
+  confirmation. Noise returns to disabled and the theme is kept. Existing
+  presets and WAV files are not deleted.
+- **Host projects** embed settings and decoded sample audio, so project size
+  grows with sample length. The theme is saved too.
+- **EXPORT PRESET** saves a self-contained `.lfpreset` (patch plus samples), not
+  a rendered WAV. The library folder is:
 
-The system menu also offers theme selection, hover help, diagnostics and a
-link to the repository usage guide. Hover or focus control labels for help.
-LayerForge does not automatically write export caches or diagnostic log
-files; the DAW and operating-system webview may manage their own files.
+  | OS | Path |
+  |---|---|
+  | macOS | `~/Library/LayerForge/Presets` |
+  | Windows | `%APPDATA%\LayerForge\Presets` |
+
+  Copy presets into that folder and press **REFRESH**; right-click a preset to
+  delete it after confirmation. Names are limited to 100 characters, and
+  duplicates get a numeric suffix.
+- **PREPARE WAV** renders the current mix in memory as 24-bit, 44.1 kHz stereo
+  (regardless of host sample rate) from a full-velocity hit. Prepare again after
+  any change. **SAVE WAV** lets you choose a destination; nothing is written
+  automatically.
+- **COPY / DRAG WAV** uses the clipboard or, on macOS, a file promise until a
+  WAV is saved; afterwards a file reference can be used. If a DAW rejects it,
+  import the saved WAV through its browser. Native drag-out is macOS-only.
+
+The system menu also offers theme selection (three palettes), hover help,
+diagnostics and a link to this guide. LayerForge does not write export caches
+or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Troubleshooting
 
-- **No sound:** trigger a MIDI note, check mute/solo,
-  levels and the host output routing. Enable and unmute noise if you want to hear it
-  without loading a sample.
-- **Trim or envelope handles are hard to use:** open **EDIT WAVE** for more
-  space. Trim snapping uses Ctrl.
-- **Phase alignment sounds worse:** it is an estimate, not a guarantee.
-  Listen and adjust PHASE manually, especially for unrelated recordings.
-- **Waveform differs from playback:** inspect TRACE after a new hit and
-  compare source-time versus output-time views. Noise and live performance
-  conditions can differ from the offline preview.
-- **Plug-in not found:** rescan plug-ins in the DAW's plug-in settings and
-  confirm the correct platform build is installed.
-- **Copy or drag rejected:** save the WAV explicitly and import it from the
-  file manager or the DAW browser.
+| Symptom | Try |
+|---|---|
+| No sound | Trigger a MIDI note; check mute/solo, levels and host output routing. Enable and unmute noise to hear it without a sample. |
+| Handles hard to use | Open **EDIT WAVE**. Trim snapping uses Ctrl. |
+| Phase alignment sounds worse | It is an estimate. Adjust PHASE by ear, especially for unrelated recordings. |
+| Waveform differs from playback | Check TRACE after a new hit and compare source-time vs output-time views. Noise and live conditions differ from the offline preview. |
+| Too quiet or loud after saturation/glue | Saturation boosts small signals; glue has no make-up gain. Rebalance with OUTPUT and watch OUTPUT PEAK. |
+| Harsh, gritty highs at high drive | Clippers and the saturator do not oversample; reduce drive or SHAPE, or low-pass the channel. |
+| Plug-in not found | Rescan in the DAW and confirm the build matches the platform (VST3 on macOS/Windows, AU on macOS). |
+| Copy or drag rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
+| Bug report | **SYSTEM MENU → DIAGNOSTICS**, copy the report, and include it. |
 
-## Advanced validation and limitations
+## Limitations and validation
 
-`npm run check` runs lint and the Node tests. `npm run build:ui` and
-`npm run build:native` run those checks first; `npm run build` builds both UI
-and native targets without installing. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for waveform-testing guidance.
-
-These checks do not certify every host workflow. Native MIDI is handled in the
-audio processor and restored patches can play with the editor closed. DAW
-automation parameters are not yet exposed by the native processor. Native
-host MIDI, preset and project round trips, clipboard, drag/drop,
-window sizing, and cross-platform behavior require manual host testing.
+- DAW parameter automation is **not yet exposed**; automate by playing MIDI and
+  using saved patches.
+- Native MIDI is processed in the audio processor with sample-accurate
+  timing, and restored patches play with the editor closed.
+- WAV export is fixed at 44.1 kHz / 24-bit.
+- Automated checks (`npm run check`: lint and the Node tests) cover DSP and
+  waveform data, and optional native MIDI tests cover the processor. They do not
+  certify host workflows. Project/preset round trips, clipboard, drag/drop,
+  window sizing and cross-platform behavior need manual testing in a DAW. See
+  [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md).

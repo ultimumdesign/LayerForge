@@ -88,10 +88,12 @@ Before publishing a draft, validate the exact ZIPs from that draft:
    save, drag and clipboard. Check behavior after multiple instances, playback
    start/stop, editor reopen, and sample-rate or buffer-size changes.
 3. Address or explicitly accept the known limitations in
-   [USER_GUIDE.md](USER_GUIDE.md#advanced-validation). In particular, native
-   MIDI currently depends on the editor and is not sample-accurate; drag and
-   clipboard compatibility with Ableton has not been verified. A successful
-   build is not sufficient evidence for these workflows.
+   [USER_GUIDE.md](USER_GUIDE.md#limitations-and-validation). In particular,
+   DAW parameter automation is not exposed, and drag and clipboard
+   compatibility with Ableton has not been verified. Native MIDI is handled
+   sample-accurately in the audio processor and should work with the editor
+   closed; confirm this in each DAW. A successful build is not sufficient
+   evidence for these workflows.
 4. Confirm distribution licensing obligations, the unsigned/notarization
    warning, and installation instructions. Publish the draft only when its
    intended release criteria are met.

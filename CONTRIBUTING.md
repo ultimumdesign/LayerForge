@@ -24,6 +24,29 @@ to see whether it has already been discussed.
 - For small, self-contained fixes, you may open a pull request directly, but
   link any related issue.
 
+## Development setup
+
+1. Install Node.js 22+ and Git. For native work also install CMake 3.22+ and
+   the platform C++ toolchain; optionally `clang-format` and ShellCheck for
+   the lint scripts.
+2. `npm run setup` installs npm packages and clones JUCE 8.0.4 and the pinned
+   Elementary runtime into `native/third_party/` (untracked).
+3. `npm run dev` serves the browser preview at `http://localhost:5173`. Most UI
+   and DSP work needs nothing more.
+4. `npm run build` builds the UI and the native plug-in; `npm run
+   install:vst3` also installs a development VST3 on macOS.
+
+Where things live: `dsp/` is the engine shared by every target, `src/` the
+React UI and audio bridge, `native/` the JUCE plug-in, `test/` the Node tests,
+and `docs/` the technical documentation. Read
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before touching the processor or
+bridge, and [docs/DSP.md](docs/DSP.md) before changing the sound.
+
+Native MIDI tests are optional. Configure CMake with
+`-DLAYERFORGE_BUILD_TESTS=ON` and build the `LayerForgeNativeTests` target
+(after `npm run build:ui` and `npm run build:native` have generated the
+embedded assets).
+
 ## Open a pull request
 
 1. Fork the repository and create a branch for your change.
@@ -60,6 +83,9 @@ to see whether it has already been discussed.
 
 - Preserve existing behavior unless the issue explicitly calls for a change.
 - Include or update focused tests for behavior changes.
+- Update the [user guide](USER_GUIDE.md) for user-visible changes and
+  [docs/DSP.md](docs/DSP.md) when ranges, defaults or algorithms change. Keep
+  the control tables in sync with `dsp/parameters.js`.
 - Do not include secrets, proprietary samples, or unrelated formatting changes.
 - Keep license and copyright notices intact.
 
