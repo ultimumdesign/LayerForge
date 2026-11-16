@@ -960,11 +960,13 @@ export default function App() {
       {/* Header Bar */}
       <header className="topbar">
         <div className="brand">
-          <div className={`led ${triggered ? 'led-on' : ''}`} />
-          <div>
-            <h1>LAYERFORGE</h1>
-            <span>MULTI-LAYER TRANSIENT &amp; CLIP ENGINE</span>
+          <div className="brand-monitor" role="img" aria-label={`LayerForge version ${version}`}>
+            <div className={`brand-screen lcd ${triggered ? 'is-hit' : ''}`}>
+              <span className="brand-name">LAYERFORGE</span>
+              <span className="brand-version">v{version} <i aria-hidden="true" /></span>
+            </div>
           </div>
+          <span className="brand-tagline">MULTI-LAYER TRANSIENT &amp; CLIP ENGINE</span>
         </div>
 
         <div className="actions">
@@ -981,12 +983,16 @@ export default function App() {
               onSelect={handleSelectPreset}
               onRefresh={refreshPresetLibrary}
               onSave={() => {
+                setPresetError('');
+                if (selectedPresetInfo?.available) {
+                  setPresetToOverwrite(selectedPresetInfo);
+                } else {
+                  setShowPresetWarning(true);
+                }
+              }}
+              onSaveAs={() => {
                 setShowPresetWarning(true);
                 setPresetError('');
-              }}
-              onSaveOver={() => {
-                setPresetError('');
-                setPresetToOverwrite(selectedPresetInfo);
               }}
               onDelete={(preset) => {
                 setPresetError('');
@@ -1015,7 +1021,7 @@ export default function App() {
             </button>
             <button
               ref={wavActionRef}
-              className="topbar-button topbar-ready"
+              className={`topbar-button topbar-ready ${preparedWav ? 'is-ready' : ''}`}
               onClick={handleCopyPreparedWav}
               draggable={Boolean(preparedWav) && !exporting}
               onDragStart={handleWavDragStart}
@@ -1033,7 +1039,7 @@ export default function App() {
               SAVE WAV
             </button>
           </div>
-          <label className="theme-picker" htmlFor="layerforge-theme-select">
+          <label className="theme-picker lcd" htmlFor="layerforge-theme-select">
             <span>THEME</span>
             <select
               id="layerforge-theme-select"
@@ -1448,7 +1454,7 @@ export default function App() {
         <div className="modal-backdrop">
           <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-overwrite-title">
             <span className="storage-dialog-icon">!</span>
-            <h2 id="preset-overwrite-title">SAVE OVER PRESET?</h2>
+            <h2 id="preset-overwrite-title">REPLACE PRESET?</h2>
             <p>
               Replace "{presetToOverwrite.name}" with the current patch and its samples? The previous
               contents of this preset cannot be recovered.
@@ -1463,7 +1469,7 @@ export default function App() {
                 onClick={() => confirmPresetExport(presetToOverwrite)}
                 disabled={presetStatus === 'SAVING PRESET...'}
               >
-                SAVE OVER
+                REPLACE
               </button>
             </div>
           </section>

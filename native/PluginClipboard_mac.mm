@@ -303,7 +303,12 @@ bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function
         return false;
 
     NSString *path = [NSString stringWithUTF8String:file.getFullPathName().toRawUTF8()];
-    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:path]];
+    NSURL *fileUrl = [NSURL fileURLWithPath:path];
+    // Offer the modern URL plus the legacy filename list; some hosts only look for one of them.
+    NSPasteboardItem *pasteboardItem = [[NSPasteboardItem alloc] init];
+    [pasteboardItem setString:[fileUrl absoluteString] forType:NSPasteboardTypeFileURL];
+    [pasteboardItem setPropertyList:@[ path ] forType:NSFilenamesPboardType];
+    NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
     const auto location = [event locationInWindow];
     [item setDraggingFrame:[view convertRect:NSMakeRect(location.x - 16.0, location.y - 16.0, 32.0, 32.0) fromView:nil]
                   contents:[[NSWorkspace sharedWorkspace] iconForFile:path]];

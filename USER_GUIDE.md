@@ -236,9 +236,10 @@ signal cannot be split into independent per-source contributions.
   presets and WAV files are not deleted.
 - **Host projects** embed settings and decoded sample audio, so project size
   grows with sample length. The theme is saved too.
-- **PRESET** drop-down: choosing a preset loads it immediately. **SAVE** writes
+- **PRESET** drop-down: choosing a preset loads it immediately. **SAVE AS** writes
   the current patch and samples as a new self-contained `.lfpreset` (not a
-  rendered WAV). **SAVE OVER** replaces the selected preset after confirmation;
+  rendered WAV). **SAVE** replaces the selected preset after confirmation (or
+  acts like SAVE AS when no preset is selected);
   the old contents cannot be recovered. The selected preset name is stored
   with the host project state, so it is still shown after the editor is closed
   and reopened (the patch itself was already restored; if you edited it, the

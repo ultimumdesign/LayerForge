@@ -11,37 +11,43 @@ export function PresetBar({
   onSelect,
   onRefresh,
   onSave,
-  onSaveOver,
+  onSaveAs,
   onDelete
 }) {
   const selectedInfo = presets.find((preset) => preset.filename === selected);
-  const canSaveOver = Boolean(selectedInfo?.available) && ready && !busy;
+  const canSave = ready && !busy;
+  const lcdStatus = status || (selectedInfo ? (selectedInfo.available ? 'LOADED' : 'MISSING') : 'INIT');
   return (
     <div className="topbar-group preset-bar" role="group" aria-label="Presets">
-      <label className="preset-select" htmlFor="layerforge-preset-select">
-        <span>PRESET</span>
-        <select
-          id="layerforge-preset-select"
-          value={selectedInfo ? selected : ''}
-          disabled={!ready || busy}
-          onChange={(event) => onSelect(event.target.value)}
-          aria-label="Saved LayerForge presets. Selecting one loads it."
-        >
-          <option value="">{libraryStatus || 'SELECT PRESET'}</option>
-          {presets.map((preset) => (
-            <option key={preset.filename} value={preset.filename}>
-              {preset.available ? preset.name : `UNAVAILABLE - ${preset.name}`}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="button" className="topbar-button" onClick={onSave} disabled={!ready || busy}
-        title="Save the current patch and samples as a new preset">
+      <div className="lcd preset-lcd">
+        <label className="lcd-row" htmlFor="layerforge-preset-select">
+          <span className="lcd-label">PRESET</span>
+          <select
+            id="layerforge-preset-select"
+            value={selectedInfo ? selected : ''}
+            disabled={!ready || busy}
+            onChange={(event) => onSelect(event.target.value)}
+            aria-label="Saved LayerForge presets. Selecting one loads it."
+          >
+            <option value="">{libraryStatus || '-- INIT PATCH --'}</option>
+            {presets.map((preset) => (
+              <option key={preset.filename} value={preset.filename}>
+                {preset.available ? preset.name : `UNAVAILABLE - ${preset.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <output className="lcd-status" role="status" title={error || lcdStatus}>{lcdStatus}</output>
+      </div>
+      <button type="button" className="topbar-button" onClick={onSave} disabled={!canSave}
+        title={selectedInfo?.available
+          ? `Replace "${selectedInfo.name}" with the current patch`
+          : 'Save the current patch as a new preset'}>
         SAVE
       </button>
-      <button type="button" className="topbar-button" onClick={onSaveOver} disabled={!canSaveOver}
-        title={selectedInfo ? `Replace "${selectedInfo.name}" with the current patch` : 'Select a preset to replace'}>
-        SAVE OVER
+      <button type="button" className="topbar-button" onClick={onSaveAs} disabled={!canSave}
+        title="Save the current patch and samples as a new preset">
+        SAVE AS
       </button>
       <button type="button" className="topbar-button topbar-icon-button" onClick={onRefresh}
         disabled={!ready || busy} aria-label="Refresh saved presets" title="Rescan the preset folder">
@@ -55,7 +61,6 @@ export function PresetBar({
           : 'Delete the selected preset'}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5" /></svg>
       </button>
-      <output className="preset-status" role="status" title={error || status}>{status}</output>
     </div>
   );
 }
