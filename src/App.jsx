@@ -993,29 +993,25 @@ export default function App() {
                 ? 'PREPARE FAILED - RETRY'
                 : isNativePlugin ? 'PREPARE WAV' : 'EXPORT 24-BIT .WAV'}
             </button>
-            {preparedWav && (
-              <button
-                ref={wavActionRef}
-                className="topbar-button topbar-ready"
-                onClick={handleCopyPreparedWav}
-                draggable={!exporting}
-                onDragStart={handleWavDragStart}
-                disabled={exporting}
-                title={helpEnabled ? 'Click to copy or drag the prepared WAV. For file-based transfers, save it first.' : undefined}
-              >
-                {wavActionStatus || 'COPY / DRAG WAV'}
-              </button>
-            )}
-            {preparedWav && (
-              <button
-                className="topbar-button"
-                onClick={handleSavePreparedWav}
-                disabled={exporting}
-                title={helpEnabled ? 'Save a permanent WAV copy to a location you choose' : undefined}
-              >
-                SAVE WAV
-              </button>
-            )}
+            <button
+              ref={wavActionRef}
+              className="topbar-button topbar-ready"
+              onClick={handleCopyPreparedWav}
+              draggable={Boolean(preparedWav) && !exporting}
+              onDragStart={handleWavDragStart}
+              disabled={!preparedWav || exporting}
+              title={helpEnabled ? 'Click to copy or drag the prepared WAV. Prepare a WAV first.' : undefined}
+            >
+              {preparedWav ? wavActionStatus || 'COPY / DRAG WAV' : 'COPY / DRAG WAV'}
+            </button>
+            <button
+              className="topbar-button"
+              onClick={handleSavePreparedWav}
+              disabled={!preparedWav || exporting}
+              title={helpEnabled ? 'Save a permanent WAV copy to a location you choose' : undefined}
+            >
+              SAVE WAV
+            </button>
           </div>
           <label className="theme-picker" htmlFor="layerforge-theme-select">
             <span>THEME</span>
