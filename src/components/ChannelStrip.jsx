@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { RotaryKnob } from './RotaryKnob.jsx';
+import { GearIcon } from './GearIcon.jsx';
 import { HelpEnabledContext } from './HelpTip.jsx';
 import { WaveformViewer } from './WaveformViewer.jsx';
 import { getLayerPreviewWaveform, getPhaseOffset, applyEnvelopeToWaveform, mergeStereoWaveform } from '../audio/waveform.js';
@@ -71,20 +72,20 @@ export function ChannelStrip({
 
   const handleAutoAlignPhase = () => {
     if (!samples?.length) return;
-    
+
     // Find another loaded layer to align against
-    const referenceLayer = allLayers.find((l, i) => 
+    const referenceLayer = allLayers.find((l, i) =>
       i !== index && l.loaded && l.sampleKey && sampleBuffers[l.sampleKey]?.length
     );
-    
+
     if (!referenceLayer || !sampleBuffers[referenceLayer.sampleKey]) {
       alert('Load another sample on a different channel to align against.');
       return;
     }
-    
+
     const referenceSamples = sampleBuffers[referenceLayer.sampleKey];
     const phaseOffset = Math.max(-0.05, Math.min(0.05, getPhaseOffset(samples, referenceSamples)));
-    
+
     onChange(index, { phaseOffset });
   };
 
@@ -300,9 +301,7 @@ export function ChannelStrip({
             title={helpEnabled ? `${moreControls ? 'Hide default' : 'Show all'} additional controls` : undefined}
             onClick={() => setMoreControls((value) => !value)}
           >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 4h10M3 8h10M3 12h10M6 2v4M10 6v4M6 10v4" />
-            </svg>
+            <GearIcon />
           </button>
           <button
             type="button"

@@ -7,7 +7,7 @@ guide covers the interface and workflow; for the underlying algorithms see the
 **Contents:** [Quick start](#quick-start) · [Signal flow](#signal-flow) ·
 [Sample channels](#sample-channels) · [Waveform editing](#waveform-editing) ·
 [Noise synth](#noise-synth) · [Master bus](#master-bus) ·
-[Mix Lab](#mix-lab-and-live-trace) · [Patches, presets and export](#patches-presets-and-wav-export) ·
+[Output Scope](#output-scope-and-live-trace) · [Patches, presets and export](#patches-presets-and-wav-export) ·
 [Troubleshooting](#troubleshooting) · [Limitations](#limitations-and-validation)
 
 ## Quick start
@@ -25,7 +25,7 @@ guide covers the interface and workflow; for the underlying algorithms see the
 5. **Export (optional):** **PREPARE WAV**, then **SAVE WAV**.
 
 The rack follows the signal path: three sample channels → **SIGNAL CHAIN**
-(noise, saturation, glue) → **OUTPUT STAGE** → **MIX LAB** display. Expand the
+(noise, saturation, glue) → **OUTPUT STAGE** → **OUTPUT SCOPE** display. Expand the
 waveform editors for more room; scroll vertically if the editor is shorter than
 its contents.
 
@@ -71,7 +71,7 @@ changing the sound. A hollow status light and subdued border mark an empty
 channel; loaded channels have a filled light, and muted channels are dimmed.
 
 **Knobs:** drag vertically, Shift-drag for fine control, click the value to
-type one, double-click to reset. The sliders icon shows or hides extra controls
+type one, double-click to reset. The gear icon shows or hides extra controls
 (modified controls stay visible). The circular-arrow icon resets the channel's
 knobs after confirmation, keeping the sample, trim, envelope, mute and solo.
 These display preferences last for the editor session.
@@ -113,7 +113,8 @@ settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
   the view recenters on the selection. **ZOOM** magnifies it, **FULL** shows the
   whole file, **FIT** returns to the selection. When zoomed, drag the scrollbar,
   use horizontal trackpad scrolling, or Shift-wheel to pan (the sum view works
-  the same way).
+  the same way). After a channel trim changes, its playhead returns to the new
+  start marker and sweeps again on the next hit.
 - **DETAIL:** in the expanded editor or noise settings, selects 512, 2048 or
   4096 preview bins. It is shared by channel and noise waveforms and is
   display-only.
@@ -155,37 +156,50 @@ available only while the synth is on.
 
 ## Master bus
 
-**Order.** Use the up/down buttons to reorder noise, saturation and glue. The
-order is saved with the patch (default: noise, saturation, glue). The line
-beside the modules shows the path from channels to output; the plus marks where
-noise joins, and filled markers show active modules. Open a module's settings
-with the button beside its enable switch; saturation and glue settings are
-editable while bypassed, and editing does not enable them.
+**Order.** Drag a module's dotted grip onto another module to reorder noise,
+saturation and glue. You can also focus the grip and use the up/down arrow
+keys. The order is saved with the patch (default: noise, saturation, glue).
+The line beside the modules shows the path from channels to output; the plus
+marks where noise joins, and filled markers show active modules. Open a
+module's settings with the gear beside its enable switch. Settings are
+available only while the corresponding module is enabled; bypassing keeps
+their values for the next time it is enabled.
 
 | Module | Controls | Range (default) |
 |---|---|---|
 | SATURATION | SAT DRIVE | 0–24 dB (6) |
 | | SAT DRY/WET | 0–1 (1) |
+| | OUTPUT | −24 to +24 dB (0) |
 | GLUE COMPRESSOR | THRESH | −36 to 0 dB (−12) |
 | | RATIO | 1–8:1 (2) |
 | | ATTACK | 1–100 ms (10) |
 | | RELEASE | 30–600 ms (120) |
 | | KNEE | 0–24 dB (6) |
 | | DRY/WET | 0–1 (1); 0 is dry, 1 is fully compressed |
+| | OUTPUT | −24 to +24 dB (0) |
 | OUTPUT STAGE | BUS DRIVE | 0–24 dB (2) |
 | | SOFT/HARD | 0–1 (0.45) |
 | | CEILING | 0.1–1.0 linear (0.95) |
 | | OUTPUT | −60 to +12 dB (0) |
 
 The glue compressor is stereo-linked: the same gain reduction applies to both
-sides. It has no make-up gain. Use OUTPUT or the saturator to compensate.
+sides. Each effect's OUTPUT adjusts its mixed output when enabled and is
+bypassed with the effect. The settings meters show stereo-linked input and
+output peaks at the module's actual position in the chain: INPUT is before the
+effect, and OUTPUT is after its dry/wet blend and OUTPUT gain. The bars span
+−60 to +12 dBFS and turn red at 0 dBFS. The compressor's WET REDUCTION shows
+the largest applied wet-path reduction during each meter update, before
+dry/wet mixing and output gain. It can therefore show reduction even at
+DRY/WET 0. Its downward bar spans 0–36 dB; the numeric reading still shows
+values beyond that range.
 
-**Meters.** **OUTPUT PEAK** (Mix Lab) measures post-OUTPUT signal in dBFS, holds
-peaks briefly and flags values above 0 dBFS. **LAST PEAK** holds the highest peak
-of the latest audible burst (bursts are separated by 300 ms below −80 dBFS).
-Neither is a loudness meter. WAV export clips values above 0 dBFS.
+**Meters.** **OUTPUT PEAK** (Output Scope) measures post-OUTPUT signal in
+dBFS, holds peaks briefly and flags values at or above 0 dBFS. **LAST PEAK**
+holds the highest peak of the latest audible burst (bursts are separated by
+300 ms below −80 dBFS). These are peak meters, not loudness meters. WAV export
+clips values above 0 dBFS.
 
-## Mix Lab and live trace
+## Output Scope and live trace
 
 The main sum shows the processed final output, displaying **RENDERING** until
 the offline preview is ready. The preview uses a full-velocity trigger and
@@ -250,7 +264,7 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 | Handles hard to use | Open **EDIT WAVE**. Trim snapping uses Ctrl. |
 | Phase alignment sounds worse | It is an estimate. Adjust PHASE by ear, especially for unrelated recordings. |
 | Waveform differs from playback | Check TRACE after a new hit and compare source-time vs output-time views. Noise and live conditions differ from the offline preview. |
-| Too quiet or loud after saturation/glue | Saturation boosts small signals; glue has no make-up gain. Rebalance with OUTPUT and watch OUTPUT PEAK. |
+| Too quiet or loud after saturation/glue | Adjust the effect's OUTPUT and watch its meters and OUTPUT PEAK. |
 | Harsh, gritty highs at high drive | Clippers and the saturator do not oversample; reduce drive or SHAPE, or low-pass the channel. |
 | Plug-in not found | Rescan in the DAW and confirm the build matches the platform (VST3 on macOS/Windows, AU on macOS). |
 | Copy or drag rejected | **SAVE WAV**, then import from the file manager or DAW browser. |

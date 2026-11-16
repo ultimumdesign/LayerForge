@@ -2,8 +2,8 @@
 
 **A three-channel drum-layering instrument for the DAW.** Stack up to three
 samples with a synthesized noise layer, shape each with a drawn gain envelope,
-transient control, filters and clipping, then glue everything through an
-optional master saturator, compressor and clipper.
+transient control, filters and clipping, then process the mix through optional
+master saturation and compression followed by a master clipper.
 
 Built with [Elementary Audio](https://www.elementary.audio/), React and
 JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
@@ -17,9 +17,10 @@ JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
 - **Drawn dynamics:** edit trims and curved gain envelopes directly on the
   processed waveform.
 - **Master bus:** reorderable noise, saturation and stereo-linked glue
-  compression feeding a master clipper, ceiling and output trim.
+  compression feeding a master clipper, ceiling and output trim, with
+  per-effect gain, peak meters and compressor gain reduction.
 - **See what you hear:** compare final output, pre-master sum, each channel and
-  noise, with a live trace of the last hit.
+  noise in Output Scope, with a live trace of the last hit.
 - **Self-contained presets and exports:** `.lfpreset` files embed samples;
   render a 24-bit / 44.1 kHz stereo WAV and drag or copy it into the DAW.
 - **Sample-accurate MIDI** handled in the audio processor; patches play with

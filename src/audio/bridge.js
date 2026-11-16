@@ -359,7 +359,7 @@ export class LayerForgeBridge {
       const node = await this.core.initialize(this.audioCtx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,
-        outputChannelCount: [13]
+        outputChannelCount: [18]
       });
       const workletUrl = URL.createObjectURL(new Blob([outputMonitorSource], { type: 'text/javascript' }));
       try {
@@ -370,14 +370,14 @@ export class LayerForgeBridge {
       this.outputMonitor = new AudioWorkletNode(this.audioCtx, 'layerforge-output-monitor', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
-        channelCount: 13,
+        channelCount: 18,
         channelCountMode: 'explicit',
         channelInterpretation: 'discrete',
         outputChannelCount: [2]
       });
       this.outputMonitor.port.onmessage = ({ data }) => {
         if (data.type === 'meter') {
-          this.onMeter?.({ min: 0, max: data.peak });
+          this.onMeter?.({ min: 0, max: data.peak, effects: data.effects });
         } else if (data.type === 'trace') {
           try {
             if (this.traceEnabled && data.generation === this.traceGeneration) {

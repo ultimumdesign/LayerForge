@@ -48,7 +48,37 @@ in the binary, as is the production UI from `dist/`.
 (gate, one-sample trigger, velocity) at the note's exact block offset. Custom
 Elementary nodes (`layerforge-midi-gate`, `-trigger`, `-velocity`) read them,
 so triggering is sample-accurate. The processor also publishes an output-peak
-value and a lock-free FIFO of output frames and internal lanes for the editor.
+value, effect-meter peaks and a lock-free FIFO of output frames and internal
+lanes for the editor.
+
+### Monitor outputs
+
+`buildDrumGraph(state, true, nativeMidi)` returns 18 channels in this order:
+
+| Index | Signal |
+|---|---|
+| 0–1 | Final output, left/right |
+| 2 | Browser gate or native one-sample trigger |
+| 3–8 | Three processed channel pairs |
+| 9–10 | Processed noise, left/right |
+| 11–12 | Sum of all sources before bus effects, left/right |
+| 13–14 | Saturation input/output stereo peaks |
+| 15–16 | Compressor input/output stereo peaks |
+| 17 | Linked compressor wet-path gain reduction in positive dB |
+
+The effect taps follow the saved bus order; input/output taps match when an
+effect is bypassed, and reduction is zero. Only the first 13 channels enter
+live trace capture. The last five are aggregated as maxima between meter
+updates, independently of trace capture. The browser worklet sends meter
+updates roughly 60 times per second; the native processor accumulates peaks
+atomically and the visible editor forwards them on its 16 ms timer.
+`layerforgeOutputMeter` carries the final peak and an `effects` array in
+13–17 order. Neither path sends effect samples individually to the UI.
+
+Keep the graph, browser channel count/worklet, native scratch buffers and
+meter forwarding in sync when changing these lanes. The offline preview
+graph uses its own 12-channel layout without the trigger or effect meters;
+normal WAV rendering uses only the final stereo pair.
 
 ### Host state
 

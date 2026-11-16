@@ -37,7 +37,7 @@ at its position in the bus order. Only modules *after* noise process it.
 |---|---|
 | Trigger | Any MIDI note-on (any note, any MIDI channel) or Space/click in the editor. Note-off is ignored, and the played note does not change pitch. |
 | Velocity | Linear scale `velocity/127` applied to the sum of channels and noise, **before** saturation, glue and the master clipper. Lower velocity therefore also drives the nonlinear stages less. |
-| Gate | A trigger raises a 28 ms gate. Samples are one-shots and ignore it; the noise envelope follows it (see [Noise synth](#noise-synth)). |
+| Gate | A trigger raises a 28 ms gate. Samples are one-shots; the noise envelope restarts on a trigger but is not cut short by the gate (see [Noise synth](#noise-synth)). |
 | Native timing | The native processor reads MIDI sample positions within each audio block, so triggers are sample-accurate. Browser triggers use timers and Web MIDI and are not. |
 | Retriggering | Each channel has two alternating voices. A new hit starts immediately while the previous voice fades out with a 10 ms time constant, avoiding clicks. A third rapid hit reuses the oldest voice. |
 | Latency | No look-ahead and no oversampling; the engine adds no latency and reports none to the host. |
@@ -163,8 +163,9 @@ the running bus. Disabled modules are removed from the graph.
 ### Saturation
 
 ```text
-wet = tanh(g · x) / tanh(g),   g = 10^(SAT DRIVE / 20)
-y   = (1 − SAT DRY/WET) · x + SAT DRY/WET · wet
+wet  = tanh(g · x) / tanh(g),   g = 10^(SAT DRIVE / 20)
+mix  = (1 − SAT DRY/WET) · x + SAT DRY/WET · wet
+out  = mix · 10^(SAT OUTPUT / 20)
 ```
 
 Dividing by `tanh(g)` makes a full-scale input map to full scale. Small signals
@@ -179,15 +180,25 @@ A feed-forward, stereo-linked, peak-sensing compressor:
    (1–100 ms) and RELEASE (30–600 ms) time constants.
 2. Level in dBFS, then `over = level − THRESH` (THRESH −36 to 0 dB).
 3. A soft knee of width KNEE (0–24 dB, default 6): quadratic within ±KNEE/2
-   of the threshold, linear above it. KNEE 0 is a hard knee.
+   of the threshold, linear above it. KNEE 0 uses a near-hard 0.01 dB knee.
 4. Gain reduction in dB is `(1 − 1/RATIO) · compressedOver` (RATIO 1–8:1),
    applied equally to both sides so the stereo image is preserved.
 5. DRY/WET (0–1, default 1) blends the uncompressed signal with the compressed
    one (parallel compression); 0 is dry.
+6. OUTPUT applies `10^(OUTPUT / 20)` to the blended signal.
 
-There is no make-up gain, look-ahead or program-dependent release. A peak
-detector reacts to transients faster than an RMS one, but very short peaks can
-pass before the attack takes hold.
+Each effect's OUTPUT ranges from −24 to +24 dB, defaults to 0 dB, and is
+bypassed along with that effect. Older patches without these settings restore
+at 0 dB. There is no automatic make-up gain, look-ahead or program-dependent
+release. A peak detector reacts to transients faster than an RMS one, but very
+short peaks can pass before the attack takes hold.
+
+The effect meters tap the running bus immediately before and after each
+module, including its dry/wet blend and OUTPUT gain. Each peak is the maximum
+absolute sample across both channels over the meter update interval.
+Compressor WET REDUCTION reports the maximum of the actual linked wet-path
+gain reduction in dB over that interval, not an estimate from input/output
+levels or the dry/wet blend. It can remain nonzero when DRY/WET is 0.
 
 ### Master clipper, ceiling and output
 
@@ -201,7 +212,8 @@ After the bus: master clipper (BUS DRIVE 0–24 dB, SOFT/HARD 0–1), then
 
 ## Parameter smoothing
 
-Continuous controls (pitch, delay, filters, width, MIX, noise, glue, ceiling)
+Continuous controls (pitch, delay, filters, width, MIX, noise, saturation,
+glue, effect OUTPUT gains and ceiling)
 pass through Elementary's `el.sm`, a one-pole smoother with a 20 ms time
 constant, to avoid zipper noise. Changes settle in about 100 ms. Structural
 changes (enabling a module, reaching a filter bypass limit, editing the
@@ -229,7 +241,6 @@ WAV export stays at 44.1 kHz even if the host runs at another sample rate.
 
 - Clipper and saturator have no oversampling.
 - Pitch is linear-interpolated varispeed with no anti-aliasing.
-- Glue is peak-based with a fixed 6 dB knee and no make-up gain.
-- Noise length is capped by the 28 ms gate.
+- Glue uses a peak detector with no look-ahead or automatic make-up gain.
 - Two voices per channel; rapid retriggers beyond that cut the oldest.
 - WAV export is fixed at 44.1 kHz / 24-bit.

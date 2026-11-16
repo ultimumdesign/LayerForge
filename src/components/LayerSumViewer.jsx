@@ -124,7 +124,7 @@ export function LayerSumViewer({
   }, [expanded]);
 
   const viewerProps = {
-    title: 'MIX LAB',
+    title: 'OUTPUT SCOPE',
     peaksOverride: displaySum.peaks,
     durationOverride: displaySum.durationSec || (traceEnabled && trace?.patchKey === patchKey ? trace.capturedSec : 0),
     stereoWaveform: displaySum.min && displaySum.max ? {
@@ -172,7 +172,7 @@ export function LayerSumViewer({
           >
             <header className="waveform-sum-expanded-header">
               <div>
-                <span>MIX LAB</span>
+                <span>OUTPUT SCOPE</span>
                 <strong id="waveform-sum-expanded-title">EXPANDED WAVEFORM</strong>
               </div>
               <div className="waveform-sum-expanded-controls">

@@ -147,6 +147,9 @@ jobs:
         shell: bash
         run: rm -rf native/build
 
+      - name: Generate native audio graph
+        run: node scripts/build-native-graph.mjs
+
       - name: Initialize native CodeQL
         if: runner.os == 'macOS'
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4

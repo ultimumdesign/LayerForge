@@ -132,6 +132,14 @@ export function WaveformViewer({
   const [pan, setPan] = useState(compact ? 0 : 0.5);
   const [fitSelection, setFitSelection] = useState(true);
   const [trimDragView, setTrimDragView] = useState(null);
+  const [resetAtPlayback, setResetAtPlayback] = useState(null);
+  const previousTrim = useRef([trimStart, trimEnd]);
+  useEffect(() => {
+    if (previousTrim.current[0] !== trimStart || previousTrim.current[1] !== trimEnd) {
+      previousTrim.current = [trimStart, trimEnd];
+      setResetAtPlayback(playbackId);
+    }
+  }, [trimStart, trimEnd, playbackId]);
   useEffect(() => {
     if (!fitTrimmed || dragTarget.current?.type === 'trim') return;
     setFitSelection(true);
@@ -338,7 +346,7 @@ export function WaveformViewer({
       const width = svgRef.current?.getBoundingClientRect().width || 1;
       let samplePosition = target.startValue +
         (event.clientX - target.startX) / width * (500 / ENVELOPE_WIDTH) * viewSpan;
-      
+
       // Apply snap-to-silence for end trim (when using Ctrl/Cmd)
       if (snapSilence && target.edge === 'end' && samples?.length && event.ctrlKey) {
         const silenceEnd = detectSilenceEnd(samples, 0.01, rightSamples || samples);
@@ -347,7 +355,7 @@ export function WaveformViewer({
           samplePosition = silenceEnd;
         }
       }
-      
+
       // Apply snap-to-silence for start trim (when using Ctrl/Cmd)
       if (snapSilence && target.edge === 'start' && samples?.length && event.ctrlKey) {
         const silenceStart = detectSilenceStart(samples, 0.01, rightSamples || samples);
@@ -356,7 +364,7 @@ export function WaveformViewer({
           samplePosition = silenceStart;
         }
       }
-      
+
       onTrimChange?.(
         target.edge === 'start'
           ? {
@@ -389,7 +397,7 @@ export function WaveformViewer({
             previous.time + MIN_POINT_SPACING,
             next.time - MIN_POINT_SPACING
           );
-    
+
     onEnvelopeChange(
       envelopePoints.map((point, pointIndex) =>
         pointIndex === index
@@ -451,7 +459,7 @@ export function WaveformViewer({
     let timeDelta = 0;
     let valueDelta = 0;
     let curveDelta = 0;
-    
+
     if (event.key === 'ArrowUp') valueDelta = amount;
     else if (event.key === 'ArrowDown') valueDelta = -amount;
     else if (event.key === 'Home') valueDelta = -1;
@@ -522,7 +530,7 @@ export function WaveformViewer({
 
   const channelPlayheads = playheads.length
     ? playheads
-    : !outputTime && playbackId && duration
+    : !outputTime && (playbackId || resetAtPlayback !== null) && duration
       ? [
           {
             id: playbackId,
@@ -923,10 +931,10 @@ export function WaveformViewer({
           const playheadPosition = (fraction) =>
             (envelopeX(fraction) / 500 * (compact ? zoom : 1) - (compact ? pan * (zoom - 1) : 0)) * 100;
           return (
-            playbackId > 0 && (
+            (playbackId > 0 || resetAtPlayback !== null) && (
               <div
                 key={`${playhead.id}-${index}`}
-                className="waveform-playhead"
+                className={`waveform-playhead${!outputTime && resetAtPlayback === playbackId ? ' is-reset' : ''}`}
                 style={{
                   '--playhead-from': `${playheadPosition(startFraction)}%`,
                   '--playhead-to': `${playheadPosition(endFraction)}%`,

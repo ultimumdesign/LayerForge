@@ -48,7 +48,7 @@ export function OutputMeter() {
   const value = formatPeak(peak);
 
   return (
-    <div className="output-meter">
+    <div className="output-meter meter-display">
       <div className="output-meter-heading">
         <span>OUTPUT PEAK</span>
         <output>{value}</output>
@@ -64,7 +64,8 @@ export function OutputMeter() {
       >
         <div className={`output-meter-fill${peak >= 1 ? ' is-clipping' : ''}`} style={{ width: `${level * 100}%` }} />
       </div>
-      <div className="output-meter-last">LAST PEAK <output aria-label="Last measured output peak">{formatPeak(lastPeak)}</output></div>
+      <div className="meter-scale" aria-hidden="true"><span>−60</span><span>−40</span><span>−20</span><span>0 dBFS</span></div>
+      <div className="output-meter-last"><span>LAST PEAK</span><output aria-label="Last measured output peak">{formatPeak(lastPeak)}</output></div>
     </div>
   );
 }

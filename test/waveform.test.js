@@ -46,16 +46,35 @@ const sample = Float32Array.from(
 test('waveform viewer switches to the trace and shows source and output time axes', async () => {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
   try {
-    const { default: App, AboutDialog, getVisibleWavDragBounds, observeNativeEditorHeight } = await server.ssrLoadModule('/src/App.jsx');
+    const { default: App, AboutDialog, getVisibleWavDragBounds, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
     const app = renderToStaticMarkup(React.createElement(App));
+    const order = ['noise', 'saturation', 'glue'];
+    assert.deepEqual(reorderBusModules(order, 'noise', 'glue'), ['saturation', 'glue', 'noise']);
+    assert.deepEqual(reorderBusModules(order, 'glue', 'noise'), ['glue', 'noise', 'saturation']);
+    assert.equal(reorderBusModules(order, 'noise', 'noise'), order);
+    assert.equal(reorderBusModules(order, 'noise', undefined), order);
+    assert.deepEqual(order, ['noise', 'saturation', 'glue']);
+    assert.match(app, /aria-label="Reorder Noise synth, position 1 of 3"/);
+    assert.match(app, /aria-label="Reorder Saturation, position 2 of 3"/);
+    assert.match(app, /aria-label="Reorder Glue compressor, position 3 of 3"/);
+    assert.doesNotMatch(app, /aria-label="Move (?:noise|saturation|glue) (?:earlier|later)/);
     assert.match(app, /aria-label="Enable noise synth" aria-pressed="false"/);
     assert.doesNotMatch(app, /aria-label="Open noise waveform editor"/);
     assert.match(app, /aria-label="Enable master saturation" aria-pressed="false"[^>]*>OFF · ENABLE/);
     assert.match(app, /aria-label="Enable glue compressor" aria-pressed="false"[^>]*>OFF · ENABLE/);
     assert.match(app, /aria-label="Noise synth settings" aria-haspopup="dialog" disabled/);
-    assert.match(app, /aria-label="Saturation settings" aria-haspopup="dialog"/);
-    assert.match(app, /aria-label="Glue compressor settings" aria-haspopup="dialog"/);
+    assert.match(app, /aria-label="Saturation settings" aria-haspopup="dialog" disabled/);
+    assert.match(app, /aria-label="Glue compressor settings" aria-haspopup="dialog" disabled/);
+    assert.match(app, /aria-label="Expand OUTPUT SCOPE waveform view"/);
     assert.doesNotMatch(app, /aria-label="(?:SAT DRIVE|THRESH):/);
+    const { GainReductionMeter } = await server.ssrLoadModule('/src/components/EffectMeters.jsx');
+    const reduction = (value) => renderToStaticMarkup(React.createElement(GainReductionMeter, { reduction: value }));
+    assert.match(reduction(0), /height:0%/);
+    assert.match(reduction(18), /aria-valuenow="18"/);
+    assert.match(reduction(18), /height:50%/);
+    assert.match(reduction(40), /aria-valuenow="36"/);
+    assert.match(reduction(40), /−40\.0 dB/);
+    assert.match(reduction(40), /height:100%/);
     for (let index = 1; index <= 3; index += 1) {
       assert.match(app, new RegExp(`aria-label="Minimize channel ${index}" aria-expanded="true"`));
       assert.match(app, new RegExp(`aria-label="Show all additional controls for channel ${index}" aria-expanded="false"`));
@@ -315,7 +334,7 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.ok(Math.abs(zoomedStart - (1 - 98 / 3)) < 1e-9);
     assert.ok(Math.abs(zoomedEnd - (99 + 98 / 3)) < 1e-9);
     const [sumStart, sumEnd] = playheadPositions(renderToStaticMarkup(React.createElement(WaveformViewer, {
-      title: 'MIX LAB', compact: true, zoom: 2, durationOverride: 1, playbackId: 1,
+      title: 'OUTPUT SCOPE', compact: true, zoom: 2, durationOverride: 1, playbackId: 1,
       playheads: [{ id: 1, delaySec: 0.25, endTimeSec: 0.75, durationSec: 0.5 }]
     })));
     assert.ok(Math.abs(sumStart - 51) < 1e-9);
@@ -464,12 +483,12 @@ test('default channels reproduce stereo samples from the first frame and remain 
   });
   const renderer = new OfflineRenderer();
   await renderer.initialize({
-    numInputChannels: 0, numOutputChannels: 13, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { left, right }
   });
   const render = async (gate, length) => {
     await renderer.render(...buildDrumGraph({ ...state, gate }, true));
-    const outputs = Array.from({ length: 13 }, () => new Float32Array(length));
+    const outputs = Array.from({ length: 18 }, () => new Float32Array(length));
     renderer.process([], outputs);
     return outputs;
   };
@@ -487,11 +506,11 @@ test('default channels reproduce stereo samples from the first frame and remain 
 
   const coldRenderer = new OfflineRenderer();
   await coldRenderer.initialize({
-    numInputChannels: 0, numOutputChannels: 13, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { left, right }
   });
   await coldRenderer.render(...buildDrumGraph({ ...state, gate: 1 }, true));
-  const cold = Array.from({ length: 13 }, () => new Float32Array(128));
+  const cold = Array.from({ length: 18 }, () => new Float32Array(128));
   coldRenderer.process([], cold);
   const referenceRenderer = new OfflineRenderer();
   await referenceRenderer.initialize({ numInputChannels: 0, numOutputChannels: 1, sampleRate: SAMPLE_RATE, blockSize: 128 });
@@ -513,12 +532,12 @@ test('sample retrigger preserves a fading previous voice without fading in the n
   });
   const renderer = new OfflineRenderer();
   await renderer.initialize({
-    numInputChannels: 0, numOutputChannels: 13, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { kick: samples }
   });
   const render = async (gate, length) => {
     await renderer.render(...buildDrumGraph({ ...state, gate }, true));
-    const outputs = Array.from({ length: 13 }, () => new Float32Array(length));
+    const outputs = Array.from({ length: 18 }, () => new Float32Array(length));
     renderer.process([], outputs);
     return outputs[3];
   };
@@ -1003,8 +1022,11 @@ test('browser output monitor passes stereo through and reports aligned trace and
     const lanes = Array.from({ length: 10 }, (_, lane) =>
       Float32Array.from(left, (value) => value * (lane + 1))
     );
+    const effectMeters = Array.from({ length: 5 }, (_, lane) =>
+      Float32Array.from(left, (value) => value * (lane + 1))
+    );
     const output = [new Float32Array(128), new Float32Array(128)];
-    monitor.process([[left, right, gate, ...lanes]], [output]);
+    monitor.process([[left, right, gate, ...lanes, ...effectMeters]], [output]);
     assert.deepEqual(output[0], left);
     assert.deepEqual(output[1], right);
     context.currentFrame += 128;
@@ -1020,6 +1042,10 @@ test('browser output monitor passes stereo through and reports aligned trace and
     assert.equal(trace.buffers[lane + 3][2047], (2047 / 2048) * (lane + 1));
   }
   assert.ok(messages.some((message) => message.type === 'meter' && message.peak === 1791 / 2048));
+  const meter = messages.find((message) => message.type === 'meter');
+  for (let lane = 0; lane < 5; lane += 1) {
+    assert.ok(Math.abs(meter.effects[lane] - (895 / 2048) * (lane + 1)) < 1e-6);
+  }
 });
 
 test('WAV export produces audible stereo 24-bit PCM at 44.1 kHz', async () => {
@@ -1138,11 +1164,11 @@ test('monitor outputs preserve stereo audio and expose the processed mix', async
   const render = async (monitor) => {
     const renderer = new OfflineRenderer();
     await renderer.initialize({
-      numInputChannels: 0, numOutputChannels: monitor ? 13 : 2, sampleRate: SAMPLE_RATE,
+      numInputChannels: 0, numOutputChannels: monitor ? 18 : 2, sampleRate: SAMPLE_RATE,
       blockSize: 128, virtualFileSystem: { kick: sample }
     });
     await renderer.render(...buildDrumGraph({ ...patch, gate: 1, velocity: 1 }, monitor));
-    const outputs = Array.from({ length: monitor ? 13 : 2 }, () => new Float32Array(4096));
+    const outputs = Array.from({ length: monitor ? 18 : 2 }, () => new Float32Array(4096));
     renderer.process([], outputs);
     return outputs;
   };
@@ -1159,6 +1185,78 @@ test('monitor outputs preserve stereo audio and expose the processed mix', async
       assert.ok(Math.abs(monitored[11 + side][index] - sum) < 1e-6);
     }
   }
+});
+
+test('effect meter taps follow bus order, gain and bypass and survive patch round trips', async () => {
+  const patch = createLoadedPatch();
+  patch.master.saturationEnabled = true;
+  patch.master.glueEnabled = true;
+  patch.master.saturationGainDb = 6;
+  patch.master.glueGainDb = -6;
+  patch.master.glueThreshold = -30;
+  patch.master.glueRatio = 8;
+  const restored = restorePatchState(serializePatchState(patch), { kick: sample });
+  assert.equal(restored.master.saturationGainDb, 6);
+  assert.equal(restored.master.glueGainDb, -6);
+  const old = restorePatchState({ master: {} });
+  assert.equal(old.master.saturationGainDb, 0);
+  assert.equal(old.master.glueGainDb, 0);
+
+  const render = async () => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({
+      numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE,
+      blockSize: 128, virtualFileSystem: { kick: sample }
+    });
+    await renderer.render(...buildDrumGraph({ ...patch, gate: 1 }, true));
+    const outputs = Array.from({ length: 18 }, () => new Float32Array(8192));
+    renderer.process([], outputs);
+    return outputs;
+  };
+  const forward = await render();
+  for (let index = 0; index < 8192; index += 1) {
+    assert.ok(Math.abs(forward[14][index] - forward[15][index]) < 1e-6);
+  }
+  assert.ok(Math.max(...forward[17]) > 1);
+  patch.master.saturationMix = 0;
+  patch.master.glueMix = 0;
+  const gainOnly = await render();
+  const index = 7000;
+  assert.ok(gainOnly[13][index] > 0.01);
+  assert.ok(Math.abs(gainOnly[14][index] / gainOnly[13][index] - Math.pow(10, 6 / 20)) < 0.01);
+  assert.ok(Math.abs(gainOnly[16][index] / gainOnly[15][index] - Math.pow(10, -6 / 20)) < 0.01);
+  patch.master.saturationMix = 1;
+  patch.master.glueMix = 1;
+  patch.master.busOrder = ['noise', 'glue', 'saturation'];
+  const reverse = await render();
+  for (let index = 0; index < 8192; index += 1) {
+    assert.ok(Math.abs(reverse[16][index] - reverse[13][index]) < 1e-6);
+  }
+  assert.notDeepEqual(forward[0], reverse[0]);
+  patch.master.saturationEnabled = false;
+  patch.master.glueEnabled = false;
+  const bypass = await render();
+  assert.deepEqual(bypass[13], bypass[14]);
+  assert.deepEqual(bypass[15], bypass[16]);
+  assert.ok(bypass[17].every((value) => value === 0));
+});
+
+test('compressor meter reports actual wet gain reduction before dry mix', async () => {
+  const config = { glueThreshold: -18, glueRatio: 4, glueAttack: 0.01, glueRelease: 0.12, glueMix: 1 };
+  const render = async (mix) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({ numInputChannels: 0, numOutputChannels: 3, sampleRate: SAMPLE_RATE, blockSize: 128 });
+    await renderer.render(...glueCompressor(el.const({ value: 0.8 }), el.const({ value: 0.2 }), { ...config, glueMix: mix }, true));
+    const outputs = Array.from({ length: 3 }, () => new Float32Array(SAMPLE_RATE));
+    renderer.process([], outputs);
+    return outputs.map((channel) => channel.at(-1));
+  };
+  const [left, right, reduction] = await render(1);
+  const [dry, , dryReduction] = await render(0);
+  assert.ok(Math.abs(reduction - 20 * Math.log10(0.8 / left)) < 1e-4);
+  assert.ok(Math.abs(right / left - 0.25) < 1e-5);
+  assert.ok(Math.abs(dry - 0.8) < 1e-5);
+  assert.ok(Math.abs(dryReduction - reduction) < 1e-5);
 });
 
 test('bending an envelope changes the processed output in the expected direction', async () => {

@@ -183,7 +183,7 @@ void LayerForgeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
                 std::make_unique<elem::AudioBufferResource>(sample.samples.data(), sample.samples.size())))
             DBG("[LayerForge] Could not restore sample resource: " + juce::String(sample.key));
     }
-    scratchBuffer.setSize(11, std::max(1, samplesPerBlock));
+    scratchBuffer.setSize(16, std::max(1, samplesPerBlock));
     midiSignals.setSize(3, std::max(1, samplesPerBlock));
     midiGateRemaining = 0;
     midiVelocity = 1.0f;
@@ -237,10 +237,10 @@ void LayerForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                     --midiGateRemaining;
             }
             LayerForgeMidiSignals signals { inputGate, inputTrigger, inputVelocity };
-            float* outputs[13] = { outL, outR, gate };
-            for (int channel = 3; channel < 13; ++channel)
+            float* outputs[18] = { outL, outR, gate };
+            for (int channel = 3; channel < 18; ++channel)
                 outputs[channel] = scratchBuffer.getWritePointer(channel - 2);
-            runtime->process(nullptr, 0, outputs, 13, count, &signals);
+            runtime->process(nullptr, 0, outputs, 18, count, &signals);
 
             float peak = 0.0f;
             for (int index = 0; index < count; ++index)
@@ -248,6 +248,14 @@ void LayerForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
             auto previous = outputPeak.load(std::memory_order_relaxed);
             while (peak > previous
                    && !outputPeak.compare_exchange_weak(previous, peak, std::memory_order_relaxed)) {}
+            for (size_t lane = 0; lane < effectPeaks.size(); ++lane) {
+                float effectPeak = 0.0f;
+                for (int index = 0; index < count; ++index)
+                    effectPeak = std::max(effectPeak, std::abs(outputs[13 + lane][index]));
+                auto previousEffect = effectPeaks[lane].load(std::memory_order_relaxed);
+                while (effectPeak > previousEffect
+                       && !effectPeaks[lane].compare_exchange_weak(previousEffect, effectPeak, std::memory_order_relaxed)) {}
+            }
 
             const int generation = traceSession.load(std::memory_order_relaxed);
             if (generation > 0) {

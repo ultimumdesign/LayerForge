@@ -939,6 +939,10 @@ void LayerForgeAudioProcessorEditor::timerCallback()
     juce::DynamicObject::Ptr meter(new juce::DynamicObject());
     meter->setProperty("min", 0.0);
     meter->setProperty("max", static_cast<double>(audioProcessor.takeOutputPeak()));
+    juce::Array<juce::var> effects;
+    for (size_t index = 0; index < 5; ++index)
+        effects.add(static_cast<double>(audioProcessor.takeEffectPeak(index)));
+    meter->setProperty("effects", juce::var(effects));
     webView->emitEventIfBrowserIsVisible("layerforgeOutputMeter", meter.get());
 
     if (!traceEnabled)

@@ -37,9 +37,9 @@ function buildDrumNodes(state, nativeMidi = false) {
     const sampleCount = Math.max(1, layer.sampleCount || 1);
     const trimRange = getSampleTrimRange(sampleCount, layer.trimStart, layer.trimEnd);
     const playableSampleCount = trimRange.sampleCount;
-    
+
     const phase = getSamplePhaseShift(playableSampleCount, layer.phaseOffset);
-    
+
     const playheadRate = el.div(
       el.mul(rate, el.sr()),
       el.const({ value: playableSampleCount })
@@ -155,13 +155,32 @@ function buildDrumNodes(state, nativeMidi = false) {
     el.mul(velGain, el.add(...layerNodes.map((layer) => layer[side]), noiseNode))
   );
   let bus = layerNodes[0].map((_, side) => el.mul(velGain, el.add(...layerNodes.map((layer) => layer[side]))));
+  let saturationInput = el.const({ value: 0 });
+  let saturationOutput = el.const({ value: 0 });
+  let glueInput = el.const({ value: 0 });
+  let glueOutput = el.const({ value: 0 });
+  let glueReduction = el.const({ value: 0 });
+  const stereoPeak = (signals) => el.max(el.abs(signals[0]), el.abs(signals[1]));
+  const effectGain = (key, db) => el.add(1, el.sm(el.const({ key, value: Math.pow(10, db / 20) - 1 })));
   for (const module of state.master.busOrder || DEFAULT_BUS_ORDER) {
     if (module === 'noise') {
       bus = bus.map((signal) => el.add(signal, el.mul(velGain, noiseNode)));
-    } else if (module === 'saturation' && state.master.saturationEnabled) {
-      bus = bus.map((signal, side) => saturator(`master:saturation:${side}`, signal, state.master.saturationDrive, state.master.saturationMix));
-    } else if (module === 'glue' && state.master.glueEnabled) {
-      bus = glueCompressor(...bus, state.master);
+    } else if (module === 'saturation') {
+      saturationInput = stereoPeak(bus);
+      if (state.master.saturationEnabled) {
+        const gain = effectGain('master:saturation:output', state.master.saturationGainDb ?? 0);
+        bus = bus.map((signal, side) => el.mul(gain, saturator(`master:saturation:${side}`, signal, state.master.saturationDrive, state.master.saturationMix)));
+      }
+      saturationOutput = stereoPeak(bus);
+    } else if (module === 'glue') {
+      glueInput = stereoPeak(bus);
+      if (state.master.glueEnabled) {
+        const [left, right, reduction] = glueCompressor(...bus, state.master, true);
+        const gain = effectGain('master:glue:output', state.master.glueGainDb ?? 0);
+        bus = [el.mul(gain, left), el.mul(gain, right)];
+        glueReduction = reduction;
+      }
+      glueOutput = stereoPeak(bus);
     }
   }
   const masterClipped = bus.map((signal, side) =>
@@ -176,17 +195,18 @@ function buildDrumNodes(state, nativeMidi = false) {
     summed,
     layers: layerNodes,
     noise: noiseNode,
-    velGain
+    velGain,
+    effectMeters: [saturationInput, saturationOutput, glueInput, glueOutput, glueReduction]
   };
 }
 
 export function buildDrumGraph(state, monitorOutput = false, nativeMidi = false) {
-  const { finalOut, summed, layers, noise, velGain } = buildDrumNodes(state, nativeMidi);
+  const { finalOut, summed, layers, noise, velGain, effectMeters } = buildDrumNodes(state, nativeMidi);
   return monitorOutput
     ? [
       ...finalOut, nativeMidi ? createNode('layerforge-midi-trigger', {}, []) : el.const({ key: 'midi:gate', value: state.gate }),
       ...layers.flatMap((pair) => pair.map((node) => el.mul(velGain, node))),
-      el.mul(velGain, noise), el.mul(velGain, noise), ...summed
+      el.mul(velGain, noise), el.mul(velGain, noise), ...summed, ...effectMeters
     ]
     : finalOut;
 }

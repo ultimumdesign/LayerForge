@@ -44,6 +44,7 @@ export const PARAMETER_SCHEMA = [
   // Master Bus parameters
   { id: 'master_saturationDrive', name: 'Master Saturation Drive', min: 0, max: 24, default: 6, unit: 'dB' },
   { id: 'master_saturationMix', name: 'Master Saturation Mix', min: 0, max: 1, default: 1, unit: '' },
+  { id: 'master_saturationGainDb', name: 'Saturation Output', min: -24, max: 24, default: 0, unit: 'dB' },
   { id: 'master_drive', name: 'Master Clip Drive', min: 0, max: 24, default: 2.0, unit: 'dB' },
   { id: 'master_hardness', name: 'Master Clip Shape', min: 0, max: 1, default: 0.45, unit: '' },
   { id: 'master_ceiling', name: 'Master Ceiling', min: 0.1, max: 1.0, default: 0.95, unit: '' },
@@ -53,7 +54,8 @@ export const PARAMETER_SCHEMA = [
   { id: 'master_glueAttack', name: 'Glue Attack', min: 0.001, max: 0.1, default: 0.01, unit: 's' },
   { id: 'master_glueRelease', name: 'Glue Release', min: 0.03, max: 0.6, default: 0.12, unit: 's' },
   { id: 'master_glueKnee', name: 'Glue Knee', min: 0, max: 24, default: 6, unit: 'dB' },
-  { id: 'master_glueMix', name: 'Glue Dry/Wet', min: 0, max: 1, default: 1, unit: '' }
+  { id: 'master_glueMix', name: 'Glue Dry/Wet', min: 0, max: 1, default: 1, unit: '' },
+  { id: 'master_glueGainDb', name: 'Glue Output', min: -24, max: 24, default: 0, unit: 'dB' }
 ];
 
 export function createDefaultLayer(label) {
@@ -324,13 +326,15 @@ export function restorePatchState(saved, sampleBuffers = {}) {
         typeof savedNoise.saturationEnabled === 'boolean' ? savedNoise.saturationEnabled : defaults.master.saturationEnabled,
       saturationDrive: boundedNumber(savedMaster.saturationDrive ?? savedNoise.saturationDrive, defaults.master.saturationDrive, 0, 24),
       saturationMix: boundedNumber(savedMaster.saturationMix ?? savedNoise.saturationMix, defaults.master.saturationMix, 0, 1),
+      saturationGainDb: boundedNumber(savedMaster.saturationGainDb, defaults.master.saturationGainDb, -24, 24),
       glueEnabled: typeof savedMaster.glueEnabled === 'boolean' ? savedMaster.glueEnabled : defaults.master.glueEnabled,
       glueThreshold: boundedNumber(savedMaster.glueThreshold, defaults.master.glueThreshold, -36, 0),
       glueRatio: boundedNumber(savedMaster.glueRatio, defaults.master.glueRatio, 1, 8),
       glueAttack: boundedNumber(savedMaster.glueAttack, defaults.master.glueAttack, 0.001, 0.1),
       glueRelease: boundedNumber(savedMaster.glueRelease, defaults.master.glueRelease, 0.03, 0.6),
       glueKnee: boundedNumber(savedMaster.glueKnee, defaults.master.glueKnee, 0, 24),
-      glueMix: boundedNumber(savedMaster.glueMix, defaults.master.glueMix, 0, 1)
+      glueMix: boundedNumber(savedMaster.glueMix, defaults.master.glueMix, 0, 1),
+      glueGainDb: boundedNumber(savedMaster.glueGainDb, defaults.master.glueGainDb, -24, 24)
     }
   };
 }
@@ -366,13 +370,15 @@ export function createDefaultState() {
       saturationEnabled: false,
       saturationDrive: 6,
       saturationMix: 1,
+      saturationGainDb: 0,
       glueEnabled: false,
       glueThreshold: -12,
       glueRatio: 2,
       glueAttack: 0.01,
       glueRelease: 0.12,
       glueKnee: 6,
-      glueMix: 1
+      glueMix: 1,
+      glueGainDb: 0
     }
   };
 }

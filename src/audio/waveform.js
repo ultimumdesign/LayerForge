@@ -206,7 +206,7 @@ export function applyEnvelopeToWaveform(waveform, envelopePoints) {
   for (let bin = 0; bin < binCount; bin += 1) {
     const position = (bin + 0.5) / binCount;
     const envelopeValue = getEnvelopeValueAt(position, envelopePoints);
-    
+
     min.push(waveform.min[bin] * envelopeValue);
     max.push(waveform.max[bin] * envelopeValue);
   }
@@ -362,11 +362,11 @@ export function getLayerSumPeaks(
 
 export function detectSilenceEnd(samples, silenceThreshold = 0.01, otherSamples = samples) {
   if (!samples?.length) return 1;
-  
+
   // Work backwards from the end to find where sustained silence begins
   const rmsWindow = Math.max(1, Math.floor(samples.length * 0.02)); // 2% of duration for better resolution
   let silenceStart = samples.length;
-  
+
   for (let i = samples.length - rmsWindow; i >= 0; i -= Math.max(1, Math.floor(rmsWindow / 2))) {
     let rms = 0;
     let count = 0;
@@ -375,25 +375,25 @@ export function detectSilenceEnd(samples, silenceThreshold = 0.01, otherSamples 
       count += 1;
     }
     rms = Math.sqrt(rms / Math.max(1, count));
-    
+
     if (rms < silenceThreshold) {
       silenceStart = i;
     } else {
       break; // Found sound, stop going backwards
     }
   }
-  
+
   // Convert to normalized 0-1 range
   return Math.max(0, Math.min(1, silenceStart / samples.length));
 }
 
 export function detectSilenceStart(samples, silenceThreshold = 0.01, otherSamples = samples) {
   if (!samples?.length) return 0;
-  
+
   // Work forwards from the start to find where sound begins
   const rmsWindow = Math.max(1, Math.floor(samples.length * 0.02)); // 2% of duration for better resolution
   let soundStart = 0;
-  
+
   for (let i = 0; i < samples.length; i += Math.max(1, Math.floor(rmsWindow / 2))) {
     let rms = 0;
     let count = 0;
@@ -402,40 +402,40 @@ export function detectSilenceStart(samples, silenceThreshold = 0.01, otherSample
       count += 1;
     }
     rms = Math.sqrt(rms / Math.max(1, count));
-    
+
     if (rms >= silenceThreshold) {
       soundStart = i;
       break; // Found sound, stop
     }
   }
-  
+
   // Convert to normalized 0-1 range
   return Math.max(0, Math.min(1, soundStart / samples.length));
 }
 
 export function getPhaseOffset(samples1, samples2, maxSearchWindow = 2048) {
   if (!samples1?.length || !samples2?.length) return 0;
-  
+
   // Find the phase offset that maximizes correlation between the two signals
   // This helps align samples that were recorded separately to prevent phase cancellation
   const searchWindow = Math.min(maxSearchWindow, Math.floor(Math.max(samples1.length, samples2.length) * 0.05));
   let bestOffset = 0;
   let bestCorrelation = -Infinity;
-  
+
   for (let offset = -searchWindow; offset <= searchWindow; offset += 1) {
     let correlation = 0;
     let count = 0;
-    
+
     for (let i = 0; i < Math.min(samples1.length, samples2.length - Math.abs(offset)); i += 1) {
       const idx1 = i;
       const idx2 = i + offset;
-      
+
       if (idx2 >= 0 && idx2 < samples2.length) {
         correlation += samples1[idx1] * samples2[idx2];
         count += 1;
       }
     }
-    
+
     if (count > 0) {
       correlation /= count;
       if (correlation > bestCorrelation) {
@@ -444,18 +444,18 @@ export function getPhaseOffset(samples1, samples2, maxSearchWindow = 2048) {
       }
     }
   }
-  
+
   // Return offset as a fraction of the sample length
   return bestOffset / samples1.length;
 }
 
 export function alignSamplePhase(samples, referenceOffset = 0) {
   if (!samples?.length) return samples;
-  
+
   // Apply phase offset by delaying/advancing the sample
   const offset = Math.round(referenceOffset * samples.length);
   if (offset === 0) return samples;
-  
+
   if (offset > 0) {
     // Delay: prepend silence
     const padded = new Float32Array(samples.length);

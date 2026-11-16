@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -7,6 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const script = fileURLToPath(new URL('../scripts/check-release.mjs', import.meta.url));
+
+test('release builds generate the native graph after clearing the build cache', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+  const clear = workflow.indexOf('run: rm -rf native/build');
+  const generate = workflow.indexOf('run: node scripts/build-native-graph.mjs');
+  const configure = workflow.indexOf('run: cmake -B native/build');
+  assert.ok(clear >= 0 && generate > clear && configure > generate);
+});
 
 test('release metadata check rejects inconsistent versions and package names', () => {
   const directory = mkdtempSync(join(tmpdir(), 'layerforge-release-test-'));

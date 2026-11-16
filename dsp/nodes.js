@@ -54,7 +54,7 @@ export function saturator(key, sig, driveDb, mixAmount) {
   return el.add(el.mul(el.sub(1, mix), sig), el.mul(mix, wet));
 }
 
-export function glueCompressor(left, right, { glueThreshold, glueRatio, glueAttack, glueRelease, glueKnee = 6, glueMix = 1 }) {
+export function glueCompressor(left, right, { glueThreshold, glueRatio, glueAttack, glueRelease, glueKnee = 6, glueMix = 1 }, includeMeter = false) {
   const peak = el.max(el.abs(left), el.abs(right));
   const attack = el.sm(el.const({ key: 'glue:attack', value: glueAttack }));
   const release = el.sm(el.const({ key: 'glue:release', value: glueRelease }));
@@ -65,9 +65,10 @@ export function glueCompressor(left, right, { glueThreshold, glueRatio, glueAtta
   const knee = Math.max(0.01, glueKnee);
   const inKnee = el.min(knee, el.max(0, el.add(over, knee / 2)));
   const compressedOver = el.add(el.div(el.mul(inKnee, inKnee), 2 * knee), el.max(0, el.sub(over, knee / 2)));
-  const gain = el.db2gain(el.mul(compressedOver, slope));
+  const reduction = el.mul(-1, el.mul(compressedOver, slope));
+  const gain = el.db2gain(el.mul(-1, reduction));
   const mix = el.sm(el.const({ key: 'glue:mix', value: glueMix }));
   const dryAmount = el.sub(1, mix);
   const blend = (dry) => el.add(el.mul(dryAmount, dry), el.mul(mix, el.mul(dry, gain)));
-  return [blend(left), blend(right)];
+  return includeMeter ? [blend(left), blend(right), reduction] : [blend(left), blend(right)];
 }

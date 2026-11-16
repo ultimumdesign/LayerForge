@@ -69,6 +69,7 @@ public:
     void setOutputTrace(bool enabled, int generation);
     int readOutputTrace(TraceFrame* destination, int capacity);
     float takeOutputPeak() { return outputPeak.exchange(0.0f); }
+    float takeEffectPeak(size_t index) { return effectPeaks[index].exchange(0.0f); }
     void audition(float velocity);
     int takeMidiTriggerCount() { return midiTriggerCount.exchange(0, std::memory_order_relaxed); }
 
@@ -97,6 +98,7 @@ private:
     std::vector<TraceFrame> traceFrames = std::vector<TraceFrame>(traceCapacity);
     std::atomic<int> traceSession { 0 };
     std::atomic<float> outputPeak { 0.0f };
+    std::array<std::atomic<float>, 5> effectPeaks {};
     std::uint64_t traceFrameCounter = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LayerForgeAudioProcessor)

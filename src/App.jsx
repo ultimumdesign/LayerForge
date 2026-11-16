@@ -17,12 +17,25 @@ import { NoiseWaveform } from './components/NoiseWaveform.jsx';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel.jsx';
 import { LayerSumViewer } from './components/LayerSumViewer.jsx';
 import { OutputMeter } from './components/OutputMeter.jsx';
+import { EffectMeters } from './components/EffectMeters.jsx';
+import { GearIcon } from './components/GearIcon.jsx';
 import { RotaryKnob } from './components/RotaryKnob.jsx';
 import { HelpEnabledContext } from './components/HelpTip.jsx';
 import { getUiTheme, UI_THEMES } from './uiThemes.js';
 import { version } from '../package.json';
 
 const EMPTY_SAMPLE_MAP = Object.freeze({});
+const BUS_MODULE_LABELS = { noise: 'Noise synth', saturation: 'Saturation', glue: 'Glue compressor' };
+
+export function reorderBusModules(order, source, target) {
+  const from = order.indexOf(source);
+  const to = order.indexOf(target);
+  if (from < 0 || to < 0 || from === to) return order;
+  const next = [...order];
+  next.splice(from, 1);
+  next.splice(to, 0, source);
+  return next;
+}
 
 export function getVisibleWavDragBounds(rect, viewportWidth, viewportHeight) {
   const x = Math.max(0, rect.left);
@@ -135,6 +148,8 @@ export default function App() {
   const wavActionRef = useRef(null);
   const utilityMenuRef = useRef(null);
   const moduleSettingsTriggerRef = useRef(null);
+  const busDragRef = useRef(null);
+  const busGripRefs = useRef({});
   const chassisRef = useRef(null);
   const presetLoadingRef = useRef(false);
   const patchGenerationRef = useRef(0);
@@ -148,6 +163,9 @@ export default function App() {
   const [showUtilityMenu, setShowUtilityMenu] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [moduleSettings, setModuleSettings] = useState(null);
+  const [draggingBusModule, setDraggingBusModule] = useState(null);
+  const [busDropTarget, setBusDropTarget] = useState(null);
+  const [busOrderAnnouncement, setBusOrderAnnouncement] = useState('');
   const [resetTarget, setResetTarget] = useState(null);
   const [helpEnabled, setHelpEnabled] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -192,6 +210,14 @@ export default function App() {
   }, []);
 
   useEffect(() => subscribeDiagnostics(setDiagnostics), []);
+
+  useEffect(() => {
+    if ((moduleSettings === 'noise' && !state.noise.enabled) ||
+        (moduleSettings === 'saturation' && !state.master.saturationEnabled) ||
+        (moduleSettings === 'glue' && !state.master.glueEnabled)) {
+      setModuleSettings(null);
+    }
+  }, [moduleSettings, state.noise.enabled, state.master.saturationEnabled, state.master.glueEnabled]);
 
   useEffect(() => {
     if (!isNativePlugin) return undefined;
@@ -810,23 +836,62 @@ export default function App() {
 
   const selectedPresetInfo = savedPresets.find((item) => item.filename === selectedPreset);
 
-  const busOrderButtons = (id) => {
-    const index = state.master.busOrder.indexOf(id);
-    const move = (offset) => setState((current) => {
-      const order = [...current.master.busOrder];
-      const from = order.indexOf(id);
-      const to = from + offset;
-      if (from < 0 || to < 0 || to >= order.length) return current;
-      [order[from], order[to]] = [order[to], order[from]];
-      return { ...current, master: { ...current.master, busOrder: order } };
-    });
+  const moveBusModule = (source, target, restoreFocus = false) => {
+    const next = reorderBusModules(state.master.busOrder, source, target);
+    if (next === state.master.busOrder) return;
+    setState((current) => ({
+      ...current,
+      master: { ...current.master, busOrder: reorderBusModules(current.master.busOrder, source, target) }
+    }));
+    setBusOrderAnnouncement(`${BUS_MODULE_LABELS[source]} moved to position ${next.indexOf(source) + 1} of ${next.length}.`);
+    if (restoreFocus) requestAnimationFrame(() => busGripRefs.current[source]?.focus());
+  };
+
+  const endBusDrag = () => {
+    busDragRef.current = null;
+    setDraggingBusModule(null);
+    setBusDropTarget(null);
+  };
+
+  const busDropProps = (id) => ({
+    'data-bus-module': id,
+    onDragOver: (event) => {
+      if (!busDragRef.current) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      setBusDropTarget(id);
+    },
+    onDrop: (event) => {
+      const source = busDragRef.current;
+      if (!source) return;
+      event.preventDefault();
+      moveBusModule(source, id);
+      endBusDrag();
+    }
+  });
+
+  const busGrip = (id, index) => {
+    const label = BUS_MODULE_LABELS[id];
     return (
-      <span className="bus-order-buttons">
-        <button type="button" className="action-btn action-btn-utility" disabled={index === 0}
-          aria-label={`Move ${id} earlier in the bus`} onClick={() => move(-1)}>↑</button>
-        <button type="button" className="action-btn action-btn-utility" disabled={index === state.master.busOrder.length - 1}
-          aria-label={`Move ${id} later in the bus`} onClick={() => move(1)}>↓</button>
-      </span>
+      <button type="button" className="bus-reorder-grip" draggable="true"
+        ref={(element) => { busGripRefs.current[id] = element; }}
+        aria-label={`Reorder ${label}, position ${index + 1} of ${state.master.busOrder.length}`}
+        aria-describedby="bus-reorder-hint" aria-keyshortcuts="ArrowUp ArrowDown"
+        title={`Drag ${label} to reorder, or use the up and down arrow keys`}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          moveBusModule(id, state.master.busOrder[index + (event.key === 'ArrowUp' ? -1 : 1)], true);
+        }}
+        onDragStart={(event) => {
+          busDragRef.current = id;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', id);
+          setDraggingBusModule(id);
+        }}
+        onDragEnd={endBusDrag}>
+        <span aria-hidden="true">⠿</span>
+      </button>
     );
   };
 
@@ -842,9 +907,7 @@ export default function App() {
         moduleSettingsTriggerRef.current = event.currentTarget;
         setModuleSettings(id);
       }}>
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M3 4h10M3 8h10M3 12h10M6 2v4M10 6v4M6 10v4" />
-      </svg>
+      <GearIcon />
     </button>
   );
 
@@ -1119,15 +1182,17 @@ export default function App() {
             <span className="strip-tag tag-rose">SIGNAL CHAIN</span>
           </div>
           <div className="bus-flow-start">CHANNELS</div>
+          <div id="bus-reorder-hint" className="bus-reorder-hint">DRAG GRIP TO REORDER · ↑/↓ KEYS</div>
+          <div className="visually-hidden" role="status" aria-live="polite">{busOrderAnnouncement}</div>
           <div className="master-modules" aria-label="Signal chain flow">
         {state.master.busOrder.map((module, index) => module === 'noise' ? (
-        <section key={module} className={`effect-section noise-module ${
+        <section key={module} {...busDropProps(module)} className={`effect-section noise-module ${
           state.noise.enabled && !state.noise.mute && state.noise.gain > 0.0005 &&
           (!hasSolo || state.noise.solo) ? 'flow-active' : ''
-        }`}>
+        }${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
           <div className="effect-heading">
+            {busGrip('noise', index)}
             <strong>{index + 1} · NOISE SYNTH</strong>
-            {busOrderButtons('noise')}
             {settingsButton('noise', 'Noise synth', !state.noise.enabled)}
             <button type="button"
               className={`effect-toggle ${state.noise.enabled ? 'effect-enabled' : ''}`}
@@ -1212,11 +1277,11 @@ export default function App() {
         </section>
 
         ) : module === 'saturation' ? (
-          <div key={module} className={`effect-section ${state.master.saturationEnabled ? 'flow-active' : ''}`}>
+          <div key={module} {...busDropProps(module)} className={`effect-section ${state.master.saturationEnabled ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
             <div className="effect-heading">
+              {busGrip('saturation', index)}
               <strong>{index + 1} · SATURATION</strong>
-              {busOrderButtons('saturation')}
-              {settingsButton('saturation', 'Saturation')}
+              {settingsButton('saturation', 'Saturation', !state.master.saturationEnabled)}
               <button
                 type="button"
                 className={`effect-toggle ${state.master.saturationEnabled ? 'effect-enabled' : ''}`}
@@ -1227,9 +1292,10 @@ export default function App() {
                 }))}
               >{state.master.saturationEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
-            {moduleSettings === 'saturation' && (
+            {moduleSettings === 'saturation' && state.master.saturationEnabled && (
               <ModuleSettingsDialog title="SATURATION" onClose={closeModuleSettings}>
-              <div className="knob-grid effect-knobs effect-knobs-two">
+              <EffectMeters effect="saturation" />
+              <div className="knob-grid effect-knobs effect-knobs-three">
                 <RotaryKnob
                   label="SAT DRIVE" value={state.master.saturationDrive} min={0} max={24}
                   defaultValue={6} unit="dB" decimals={1}
@@ -1240,16 +1306,21 @@ export default function App() {
                   defaultValue={1} decimals={2}
                   onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationMix: v } }))}
                 />
+                <RotaryKnob
+                  label="OUTPUT" value={state.master.saturationGainDb} min={-24} max={24}
+                  defaultValue={0} unit="dB" decimals={1}
+                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationGainDb: v } }))}
+                />
               </div>
               </ModuleSettingsDialog>
             )}
           </div>
         ) : (
-          <div key={module} className={`effect-section ${state.master.glueEnabled ? 'flow-active' : ''}`}>
+          <div key={module} {...busDropProps(module)} className={`effect-section ${state.master.glueEnabled ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
             <div className="effect-heading">
+              {busGrip('glue', index)}
               <strong>{index + 1} · GLUE COMPRESSOR</strong>
-              {busOrderButtons('glue')}
-              {settingsButton('glue', 'Glue compressor')}
+              {settingsButton('glue', 'Glue compressor', !state.master.glueEnabled)}
               <button
                 type="button"
                 className={`effect-toggle ${state.master.glueEnabled ? 'effect-enabled' : ''}`}
@@ -1260,8 +1331,9 @@ export default function App() {
                 }))}
               >{state.master.glueEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
-            {moduleSettings === 'glue' && (
+            {moduleSettings === 'glue' && state.master.glueEnabled && (
               <ModuleSettingsDialog title="GLUE COMPRESSOR" onClose={closeModuleSettings}>
+              <EffectMeters effect="glue" />
               <div className="knob-grid effect-knobs">
                 <RotaryKnob
                   label="THRESH" value={state.master.glueThreshold} min={-36} max={0}
@@ -1292,6 +1364,11 @@ export default function App() {
                   label="DRY/WET" value={state.master.glueMix} min={0} max={1}
                   defaultValue={1} decimals={2}
                   onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueMix: v } }))}
+                />
+                <RotaryKnob
+                  label="OUTPUT" value={state.master.glueGainDb} min={-24} max={24}
+                  defaultValue={0} unit="dB" decimals={1}
+                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueGainDb: v } }))}
                 />
               </div>
               </ModuleSettingsDialog>

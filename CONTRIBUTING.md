@@ -118,3 +118,10 @@ When adding or changing waveform capabilities:
 
 Summarize the commands and manual checks in the pull request; do not claim a
 passing suite proves behavior that was not tested.
+
+For signal-chain or meter changes, also verify reordered and bypassed modules,
+stereo input/output taps, wet-path gain reduction, and effect output gains.
+Keep the browser and native monitor layouts synchronized as described in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#monitor-outputs); test persisted
+values and older patches. Exercise the settings and meters in a host as well
+as in the browser when native behavior is affected.

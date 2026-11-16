@@ -21,7 +21,7 @@ bool run()
     sample[1] = -0.5f;
     source.storeSampleResource("kick", sample, sampleRate);
     if (!source.setPatchStateJson(
-            R"({"layers":[{"loaded":true,"sampleKey":"kick","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true}})"))
+            R"({"layers":[{"loaded":true,"sampleKey":"kick","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true},"master":{"glueEnabled":true,"glueThreshold":-30,"glueRatio":8,"glueAttack":0.001}})"))
         return false;
     juce::MemoryBlock saved;
     source.getStateInformation(saved);
@@ -45,6 +45,11 @@ bool run()
             juce::Thread::sleep(10);
     }
     if (!expect(graphReady, "Restored graph did not produce audio without an editor"))
+        return false;
+    if (!expect(restored.takeEffectPeak(2) > 0.0f && restored.takeEffectPeak(3) > 0.0f,
+                "Compressor input/output meters did not receive audio"))
+        return false;
+    if (!expect(restored.takeEffectPeak(4) > 0.0f, "Compressor gain reduction meter did not receive data"))
         return false;
 
     for (int block = 0; block < 50; ++block) {

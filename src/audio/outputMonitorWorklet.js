@@ -1,6 +1,7 @@
 /* global AudioWorkletProcessor, registerProcessor, sampleRate, currentFrame */
 const TRACE_CHUNK_SIZE = 2048;
 const TRACE_CHANNEL_COUNT = 13;
+const EFFECT_METER_COUNT = 5;
 
 class LayerForgeOutputMonitor extends AudioWorkletProcessor {
   constructor() {
@@ -13,6 +14,7 @@ class LayerForgeOutputMonitor extends AudioWorkletProcessor {
     this.buffer = null;
     this.count = 0;
     this.peak = 0;
+    this.effectPeaks = Array(EFFECT_METER_COUNT).fill(0);
     this.meterFrames = 0;
     this.port.onmessage = ({ data }) => {
       if (data.type === 'trace') {
@@ -38,6 +40,9 @@ class LayerForgeOutputMonitor extends AudioWorkletProcessor {
       output[0][index] = left;
       if (output[1]) output[1][index] = right;
       this.peak = Math.max(this.peak, Math.abs(left), Math.abs(right));
+      for (let channel = 0; channel < EFFECT_METER_COUNT; channel += 1) {
+        this.effectPeaks[channel] = Math.max(this.effectPeaks[channel], Math.abs(input[TRACE_CHANNEL_COUNT + channel]?.[index] ?? 0));
+      }
 
       if (this.traceEnabled) {
         if (!this.buffer && this.pool.length) {
@@ -66,8 +71,9 @@ class LayerForgeOutputMonitor extends AudioWorkletProcessor {
     }
     this.meterFrames += length;
     if (this.meterFrames >= sampleRate / 60) {
-      this.port.postMessage({ type: 'meter', peak: this.peak });
+      this.port.postMessage({ type: 'meter', peak: this.peak, effects: this.effectPeaks });
       this.peak = 0;
+      this.effectPeaks = Array(EFFECT_METER_COUNT).fill(0);
       this.meterFrames = 0;
     }
     return true;
