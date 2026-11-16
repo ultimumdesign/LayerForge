@@ -254,8 +254,9 @@ signal cannot be split into independent per-source contributions.
   any change. **SAVE WAV** lets you choose a destination; nothing is written
   automatically.
 - **COPY / DRAG WAV** gives the DAW a real file. If the WAV is unsaved, a
-  temporary copy is written only for the transfer: it is deleted when the drag
-  ends, or, for a clipboard copy, on the next copy or when the editor closes.
+  temporary copy is written only for the transfer. Because DAWs read the file
+  after the drop, it is kept until your next drag or copy, or until the editor
+  closes, then deleted.
   A saved WAV is referenced directly and never deleted. If a DAW rejects it,
   import the saved WAV through its browser. Native drag-out is macOS-only.
 

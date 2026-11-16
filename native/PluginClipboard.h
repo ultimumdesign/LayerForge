@@ -27,12 +27,16 @@ struct WavData
 using WavDataPtr = std::shared_ptr<WavData>;
 
 // Writes unsaved audio to a temporary file in its own folder; callers delete
-// the parent folder as soon as the drag or clipboard transaction ends.
+// the parent folder when the next transfer starts or the editor closes.
 inline juce::File writeTemporaryWavFile(const WavData &wav)
 {
-    const auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory)
-                               .getChildFile("LayerForge-transfer-" +
-                                             juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
+    const auto tempRoot = juce::File::getSpecialLocation(juce::File::tempDirectory);
+    // Sweep folders left behind by a crashed host.
+    for (const auto &old : tempRoot.findChildFiles(juce::File::findDirectories, false, "LayerForge-transfer-*"))
+        if (old.getLastModificationTime() < juce::Time::getCurrentTime() - juce::RelativeTime::hours(2))
+            old.deleteRecursively();
+    const auto directory = tempRoot.getChildFile(
+        "LayerForge-transfer-" + juce::String::toHexString(juce::Random::getSystemRandom().nextInt64()));
     const auto file = directory.getChildFile(juce::File::createLegalFileName(wav.filename));
     if (directory.createDirectory().failed() || !file.replaceWithData(wav.bytes.data(), wav.bytes.size()))
     {

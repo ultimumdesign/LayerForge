@@ -65,6 +65,11 @@ struct WavDragViewState
             dragTempFile.getParentDirectory().deleteRecursively();
         dragTempFile = juce::File();
     }
+
+    ~WavDragViewState()
+    {
+        removeDragTempFile();
+    }
 };
 } // namespace
 
@@ -155,7 +160,7 @@ struct WavDragViewState
     }
     else
     {
-        // Unsaved audio is written to a temporary file that exists only until this drag ends.
+        // Unsaved audio is written to a temporary file that exists until the next drag or until the editor closes.
         const auto file = layerforge::writeTemporaryWavFile(*state->wav);
         if (file == juce::File())
         {
@@ -221,9 +226,15 @@ struct WavDragViewState
               operation:(NSDragOperation)operation
 {
     juce::ignoreUnused(session, screenPoint);
-    state->removeDragTempFile();
+    // DAWs reference or import the file after the drop, so keep it until the next
+    // drag or until the editor closes.
+    const bool hadTempFile = state->dragTempFile != juce::File() && state->dragTempFile.existsAsFile();
     if (operation == NSDragOperationNone)
-        [self notifyStatus:"dropRejected" error:"The drop target did not accept the WAV file"];
+    {
+        const auto detail = juce::String("The drop target did not accept the WAV file (operation 0, ") +
+                            (hadTempFile ? "temporary file existed" : "saved file used") + ")";
+        [self notifyStatus:"dropRejected" error:detail.toRawUTF8()];
+    }
     else
         [self notifyStatus:"dropAccepted" error:""];
 }
