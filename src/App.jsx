@@ -1156,8 +1156,8 @@ export default function App() {
             <RotaryKnob
               label="FREQ"
               value={state.noise.cutoff}
-              min={150}
-              max={16000}
+              min={20}
+              max={20000}
               defaultValue={4800}
               unit="Hz"
               decimals={0}
@@ -1167,8 +1167,8 @@ export default function App() {
             <RotaryKnob
               label="RESO"
               value={state.noise.q}
-              min={0.5}
-              max={10}
+              min={0.1}
+              max={30}
               defaultValue={1.4}
               decimals={1}
               accent="var(--theme-accent-tertiary)"
@@ -1177,8 +1177,8 @@ export default function App() {
             <RotaryKnob
               label="DECAY"
               value={state.noise.decay}
-              min={0.005}
-              max={0.6}
+              min={0.002}
+              max={3}
               defaultValue={0.075}
               unit="s"
               decimals={3}
@@ -1189,7 +1189,7 @@ export default function App() {
               label="CLIP DRV"
               value={state.noise.clipDrive}
               min={0}
-              max={24}
+              max={36}
               defaultValue={3.0}
               unit="dB"
               decimals={1}
@@ -1200,7 +1200,7 @@ export default function App() {
               label="MIX"
               value={state.noise.gain}
               min={0}
-              max={1}
+              max={2}
               defaultValue={0.22}
               decimals={2}
               accent="var(--theme-accent)"
@@ -1236,7 +1236,7 @@ export default function App() {
                   onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationDrive: v } }))}
                 />
                 <RotaryKnob
-                  label="SAT MIX" value={state.master.saturationMix} min={0} max={1}
+                  label="SAT DRY/WET" value={state.master.saturationMix} min={0} max={1}
                   defaultValue={1} decimals={2}
                   onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationMix: v } }))}
                 />
@@ -1282,6 +1282,16 @@ export default function App() {
                   label="RELEASE" value={state.master.glueRelease * 1000} min={30} max={600}
                   defaultValue={120} unit="ms" decimals={0}
                   onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueRelease: v / 1000 } }))}
+                />
+                <RotaryKnob
+                  label="KNEE" value={state.master.glueKnee} min={0} max={24}
+                  defaultValue={6} unit="dB" decimals={1}
+                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueKnee: v } }))}
+                />
+                <RotaryKnob
+                  label="DRY/WET" value={state.master.glueMix} min={0} max={1}
+                  defaultValue={1} decimals={2}
+                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueMix: v } }))}
                 />
               </div>
               </ModuleSettingsDialog>

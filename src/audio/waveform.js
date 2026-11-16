@@ -304,7 +304,7 @@ export function getLayerSumPeaks(
   );
   const noiseAudible =
     state.noise.enabled && state.noise.gain > 0 && !state.noise.mute && (!hasSolo || state.noise.solo);
-  const noiseDuration = noiseAudible ? Math.max(0.005, state.noise.decay) : 0;
+  const noiseDuration = noiseAudible ? state.noise.decay + 0.016 : 0;
   const fullDuration = Math.max(durationSec, noiseDuration);
   const sampleCount = Math.ceil(fullDuration * 44100);
   const count = Math.min(barCount, sampleCount);

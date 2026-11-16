@@ -36,11 +36,11 @@ export const PARAMETER_SCHEMA = [
   ]).flat(),
 
   // Noise Engine parameters
-  { id: 'noise_cutoff', name: 'Noise Freq', min: 150, max: 16000, default: 4800, unit: 'Hz' },
-  { id: 'noise_q', name: 'Noise Resonance', min: 0.5, max: 10, default: 1.4, unit: '' },
-  { id: 'noise_decay', name: 'Noise Decay', min: 0.005, max: 0.6, default: 0.075, unit: 's' },
-  { id: 'noise_clipDrive', name: 'Noise Clip Drive', min: 0, max: 24, default: 3.0, unit: 'dB' },
-  { id: 'noise_gain', name: 'Noise Mix', min: 0, max: 1.0, default: 0.22, unit: '' },
+  { id: 'noise_cutoff', name: 'Noise Freq', min: 20, max: 20000, default: 4800, unit: 'Hz' },
+  { id: 'noise_q', name: 'Noise Resonance', min: 0.1, max: 30, default: 1.4, unit: '' },
+  { id: 'noise_decay', name: 'Noise Decay', min: 0.002, max: 3, default: 0.075, unit: 's' },
+  { id: 'noise_clipDrive', name: 'Noise Clip Drive', min: 0, max: 36, default: 3.0, unit: 'dB' },
+  { id: 'noise_gain', name: 'Noise Mix', min: 0, max: 2.0, default: 0.22, unit: '' },
   // Master Bus parameters
   { id: 'master_saturationDrive', name: 'Master Saturation Drive', min: 0, max: 24, default: 6, unit: 'dB' },
   { id: 'master_saturationMix', name: 'Master Saturation Mix', min: 0, max: 1, default: 1, unit: '' },
@@ -51,7 +51,9 @@ export const PARAMETER_SCHEMA = [
   { id: 'master_glueThreshold', name: 'Glue Threshold', min: -36, max: 0, default: -12, unit: 'dB' },
   { id: 'master_glueRatio', name: 'Glue Ratio', min: 1, max: 8, default: 2, unit: ':1' },
   { id: 'master_glueAttack', name: 'Glue Attack', min: 0.001, max: 0.1, default: 0.01, unit: 's' },
-  { id: 'master_glueRelease', name: 'Glue Release', min: 0.03, max: 0.6, default: 0.12, unit: 's' }
+  { id: 'master_glueRelease', name: 'Glue Release', min: 0.03, max: 0.6, default: 0.12, unit: 's' },
+  { id: 'master_glueKnee', name: 'Glue Knee', min: 0, max: 24, default: 6, unit: 'dB' },
+  { id: 'master_glueMix', name: 'Glue Dry/Wet', min: 0, max: 1, default: 1, unit: '' }
 ];
 
 export function createDefaultLayer(label) {
@@ -300,11 +302,11 @@ export function restorePatchState(saved, sampleBuffers = {}) {
       enabled: typeof savedNoise.enabled === 'boolean' ? savedNoise.enabled : Boolean(saved.noise),
       mute: typeof savedNoise.mute === 'boolean' ? savedNoise.mute : defaults.noise.mute,
       solo: typeof savedNoise.solo === 'boolean' ? savedNoise.solo : defaults.noise.solo,
-      cutoff: boundedNumber(savedNoise.cutoff, defaults.noise.cutoff, 150, 16000),
-      q: boundedNumber(savedNoise.q, defaults.noise.q, 0.5, 10),
-      decay: boundedNumber(savedNoise.decay, defaults.noise.decay, 0.005, 0.6),
-      clipDrive: boundedNumber(savedNoise.clipDrive, defaults.noise.clipDrive, 0, 24),
-      gain: boundedNumber(savedNoise.gain, defaults.noise.gain, 0, 1),
+      cutoff: boundedNumber(savedNoise.cutoff, defaults.noise.cutoff, 20, 20000),
+      q: boundedNumber(savedNoise.q, defaults.noise.q, 0.1, 30),
+      decay: boundedNumber(savedNoise.decay, defaults.noise.decay, 0.002, 3),
+      clipDrive: boundedNumber(savedNoise.clipDrive, defaults.noise.clipDrive, 0, 36),
+      gain: boundedNumber(savedNoise.gain, defaults.noise.gain, 0, 2),
       ...sanitizeTrimRange(savedNoise.trimStart, savedNoise.trimEnd),
       envelopePoints: sanitizeEnvelopePoints(savedNoise.envelopePoints) ||
         DEFAULT_ENVELOPE_POINTS.map((point) => ({ ...point }))
@@ -326,7 +328,9 @@ export function restorePatchState(saved, sampleBuffers = {}) {
       glueThreshold: boundedNumber(savedMaster.glueThreshold, defaults.master.glueThreshold, -36, 0),
       glueRatio: boundedNumber(savedMaster.glueRatio, defaults.master.glueRatio, 1, 8),
       glueAttack: boundedNumber(savedMaster.glueAttack, defaults.master.glueAttack, 0.001, 0.1),
-      glueRelease: boundedNumber(savedMaster.glueRelease, defaults.master.glueRelease, 0.03, 0.6)
+      glueRelease: boundedNumber(savedMaster.glueRelease, defaults.master.glueRelease, 0.03, 0.6),
+      glueKnee: boundedNumber(savedMaster.glueKnee, defaults.master.glueKnee, 0, 24),
+      glueMix: boundedNumber(savedMaster.glueMix, defaults.master.glueMix, 0, 1)
     }
   };
 }
@@ -366,7 +370,9 @@ export function createDefaultState() {
       glueThreshold: -12,
       glueRatio: 2,
       glueAttack: 0.01,
-      glueRelease: 0.12
+      glueRelease: 0.12,
+      glueKnee: 6,
+      glueMix: 1
     }
   };
 }

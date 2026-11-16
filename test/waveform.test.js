@@ -1306,3 +1306,51 @@ test('preview and WAV match a settled live-like renderer', async () => {
     assert.ok(Math.abs(pcm / 0x800000 - Math.max(-1, Math.min(1, left[index]))) < 2e-7);
   }
 });
+
+test('glue knee and dry/wet shape compression and persist', async () => {
+  const render = async (config) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({ numInputChannels: 0, numOutputChannels: 2, sampleRate: SAMPLE_RATE, blockSize: 128 });
+    await renderer.render(...glueCompressor(el.const({ value: 0.25 }), el.const({ value: 0.25 }), config));
+    const outputs = [new Float32Array(SAMPLE_RATE), new Float32Array(SAMPLE_RATE)];
+    renderer.process([], outputs);
+    return outputs[0].at(-1);
+  };
+  const base = { glueThreshold: -12, glueRatio: 4, glueAttack: 0.01, glueRelease: 0.12 };
+  const hard = await render({ ...base, glueKnee: 0 });
+  const soft = await render({ ...base, glueKnee: 24 });
+  const wet = await render({ ...base, glueKnee: 6, glueMix: 1 });
+  const half = await render({ ...base, glueKnee: 6, glueMix: 0.5 });
+  const dry = await render({ ...base, glueKnee: 6, glueMix: 0 });
+  assert.ok(Number.isFinite(hard) && Math.abs(hard - 0.25) < 1e-4);
+  assert.ok(soft < hard);
+  assert.ok(Math.abs(dry - 0.25) < 1e-5);
+  assert.ok(wet < half && half < dry);
+
+  const state = createDefaultState();
+  assert.equal(state.master.glueKnee, 6);
+  assert.equal(state.master.glueMix, 1);
+  state.master.glueKnee = 12;
+  state.master.glueMix = 0.4;
+  const restored = restorePatchState(serializePatchState(state));
+  assert.equal(restored.master.glueKnee, 12);
+  assert.equal(restored.master.glueMix, 0.4);
+  const clamped = restorePatchState({ master: { glueKnee: 99, glueMix: -1 } });
+  assert.equal(clamped.master.glueKnee, 24);
+  assert.equal(clamped.master.glueMix, 0);
+});
+
+test('noise controls accept the extended ranges', () => {
+  const noise = restorePatchState({
+    noise: { cutoff: 20, q: 30, decay: 3, clipDrive: 36, gain: 2 }
+  }).noise;
+  assert.deepEqual(
+    [noise.cutoff, noise.q, noise.decay, noise.clipDrive, noise.gain],
+    [20, 30, 3, 36, 2]
+  );
+  const over = restorePatchState({ noise: { cutoff: 99999, q: 99, decay: 99, clipDrive: 99, gain: 9 } }).noise;
+  assert.deepEqual(
+    [over.cutoff, over.q, over.decay, over.clipDrive, over.gain],
+    [20000, 30, 3, 36, 2]
+  );
+});
