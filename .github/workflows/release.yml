@@ -32,7 +32,13 @@ jobs:
         run: npm ci
 
       - name: Audit locked dependencies
-        run: npm audit --audit-level=high
+        run: |
+          set +e
+          npm audit --audit-level=high --json > "$RUNNER_TEMP/npm-audit.json"
+          audit_status=$?
+          set -e
+          cat "$RUNNER_TEMP/npm-audit.json"
+          node scripts/check-audit.mjs "$RUNNER_TEMP/npm-audit.json" "$audit_status"
 
       - name: Verify release metadata
         run: npm run check:release

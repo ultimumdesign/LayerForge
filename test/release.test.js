@@ -5,8 +5,54 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import { checkAudit } from '../scripts/check-audit.mjs';
 
 const script = fileURLToPath(new URL('../scripts/check-release.mjs', import.meta.url));
+
+test('audit exception accepts only the known picomatch advisory and its dependents', () => {
+  const advisory = {
+    name: 'picomatch',
+    dependency: 'picomatch',
+    url: 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf'
+  };
+  const report = {
+    auditReportVersion: 2,
+    vulnerabilities: {
+      picomatch: { name: 'picomatch', severity: 'high', via: [advisory] },
+      vite: { name: 'vite', severity: 'high', via: ['picomatch'] }
+    }
+  };
+  assert.equal(checkAudit(report, 1), 2);
+  assert.equal(checkAudit({ auditReportVersion: 2, vulnerabilities: {} }, 0), 0);
+  assert.throws(() => checkAudit(report, 0), /exit status/);
+  assert.throws(() => checkAudit({ ...report, error: { code: 'ENET' } }, 1), /failed/);
+  assert.throws(() => checkAudit({
+    ...report,
+    vulnerabilities: {
+      ...report.vulnerabilities,
+      picomatch: { ...report.vulnerabilities.picomatch, via: [advisory, { ...advisory, url: 'other' }] }
+    }
+  }, 1), /Unaccepted/);
+  assert.throws(() => checkAudit({
+    ...report,
+    vulnerabilities: { ...report.vulnerabilities, vite: { name: 'vite', severity: 'high', via: ['vite'] } }
+  }, 1), /Unaccepted/);
+
+  const directory = mkdtempSync(join(tmpdir(), 'layerforge-audit-test-'));
+  const path = join(directory, 'audit.json');
+  const auditScript = fileURLToPath(new URL('../scripts/check-audit.mjs', import.meta.url));
+  const run = (status) => spawnSync(process.execPath, [auditScript, path, status], { encoding: 'utf8' });
+  try {
+    writeFileSync(path, JSON.stringify(report));
+    assert.equal(run('1').status, 0);
+    assert.notEqual(run('2').status, 0);
+    writeFileSync(path, '{invalid');
+    assert.notEqual(run('1').status, 0);
+  } finally {
+    unlinkSync(path);
+    rmdirSync(directory);
+  }
+});
 
 test('commitlint accepts GitHub squash messages without weakening ordinary commit checks', () => {
   const cli = fileURLToPath(new URL('../node_modules/@commitlint/cli/cli.js', import.meta.url));
