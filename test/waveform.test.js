@@ -7,11 +7,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 import OfflineRenderer from '@elemaudio/offline-renderer';
 import { el } from '@elemaudio/core';
+import { createHitPeakTracker } from '../src/audio/meterPeaks.js';
 import { buildDrumGraph } from '../dsp/engine.js';
 import { glueCompressor, saturator } from '../dsp/nodes.js';
 import { getEnvelopeSequence, getEnvelopeValueAt } from '../dsp/envelope.js';
 import {
   createDefaultState,
+  getSampleTrimRange,
+  resetBusModuleKnobs,
   resetLayerKnobs,
   restorePatchState,
   serializePatchState,
@@ -22,6 +25,7 @@ import {
   getEnvelopeDisplayY,
   detectSilenceEnd,
   detectSilenceStart,
+  getDefaultSampleTrimEnd,
   getLayerPreviewWaveform,
   getPhaseOffset,
   getLayerPlaybackInfo,
@@ -46,8 +50,10 @@ const sample = Float32Array.from(
 test('waveform viewer switches to the trace and shows source and output time axes', async () => {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
   try {
-    const { default: App, AboutDialog, getVisibleWavDragBounds, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const { default: App, AboutDialog, BrandSignature, WavCopyButton, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
     const app = renderToStaticMarkup(React.createElement(App));
+    assert.match(app, /href="https:\/\/www\.instagram\.com\/ayatkomusic\/"[^>]*>made with love - ayatko<\/a>/);
+    assert.doesNotMatch(app, /MULTI-LAYER TRANSIENT &amp; CLIP ENGINE/);
     const order = ['noise', 'saturation', 'glue'];
     assert.deepEqual(reorderBusModules(order, 'noise', 'glue'), ['saturation', 'glue', 'noise']);
     assert.deepEqual(reorderBusModules(order, 'glue', 'noise'), ['glue', 'noise', 'saturation']);
@@ -86,6 +92,60 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(app, /channel-extra-controls/);
     const { ChannelStrip } = await server.ssrLoadModule('/src/components/ChannelStrip.jsx');
     const { LayerForgeBridge } = await server.ssrLoadModule('/src/audio/bridge.js');
+    const copyButton = (props) => renderToStaticMarkup(React.createElement(WavCopyButton, props));
+    assert.match(copyButton({ ready: false }), /disabled[^>]*>COPY WAV/);
+    assert.match(copyButton({ ready: true, status: 'COPIED' }), /aria-live="polite"[^>]*>COPIED/);
+    assert.match(copyButton({ ready: true, status: 'COPY FAILED' }), />COPY FAILED/);
+    assert.doesNotMatch(copyButton({ ready: true }), /draggable|DRAG/);
+    assert.match(copyButton({ ready: true, exporting: true }), /disabled/);
+
+    const { PresetBar } = await server.ssrLoadModule('/src/components/PresetBar.jsx');
+    const presetProps = {
+      presets: [
+        { filename: 'kick.lfpreset', name: 'Kick', available: true },
+        { filename: 'missing.lfpreset', name: 'Missing', available: false, error: 'Cannot read preset' }
+      ],
+      ready: true,
+      busy: false
+    };
+    const presetBar = (props) => renderToStaticMarkup(React.createElement(PresetBar, { ...presetProps, ...props }));
+    assert.match(presetBar({ selected: 'kick.lfpreset' }), /value="kick\.lfpreset" selected/);
+    assert.match(presetBar({ selected: 'kick.lfpreset' }), />LOADED<\/output>/);
+    assert.match(presetBar({ selected: 'missing.lfpreset' }), />MISSING<\/output>/);
+    assert.match(presetBar({ selected: 'absent.lfpreset' }), />INIT<\/output>/);
+    assert.match(presetBar({ selected: 'kick.lfpreset', busy: true }), /disabled[^>]*>[\s\n]*SAVE/);
+
+    const originalWindow = globalThis.window;
+    try {
+      const messages = [];
+      globalThis.window = {
+        __JUCE__: {},
+        _postMessageToPluginBackend: (type, payload) => messages.push({ type, payload }),
+        setTimeout,
+        clearTimeout
+      };
+      let prevented = false;
+      BrandSignature({ isNativePlugin: true }).props.onClick({ preventDefault: () => { prevented = true; } });
+      assert.equal(prevented, true);
+      assert.deepEqual(messages.shift(), { type: 'openInstagram', payload: {} });
+      prevented = false;
+      BrandSignature({ isNativePlugin: false }).props.onClick({ preventDefault: () => { prevented = true; } });
+      assert.equal(prevented, false);
+      const clipboardBridge = new LayerForgeBridge();
+      const copy = clipboardBridge.copyNativeWavToClipboard('prepared-wav');
+      assert.equal(messages[0].type, 'wavClipboard');
+      assert.equal(messages[0].payload.key, 'prepared-wav');
+      clipboardBridge.nativeWavClipboardListener({ requestId: messages[0].payload.requestId, success: true });
+      await copy;
+      const failedCopy = clipboardBridge.copyNativeWavToClipboard('prepared-wav');
+      clipboardBridge.nativeWavClipboardListener({
+        requestId: messages[1].payload.requestId, success: false, error: 'Clipboard unavailable'
+      });
+      await assert.rejects(failedCopy, /Clipboard unavailable/);
+      assert.equal(clipboardBridge.pendingClipboardWrites.size, 0);
+    } finally {
+      globalThis.window = originalWindow;
+    }
     const bridge = new LayerForgeBridge();
     const nativeFile = new Promise((resolve, reject) => {
       bridge.pendingSampleFile = { requestId: 'sample-1', resolve, reject };
@@ -134,6 +194,16 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.throws(() => restorePatchState(serializePatchState(savedStereo), {
       [loaded.sampleKey]: leftSample
     }), /Stereo sample data.*missing/);
+    const paddedLeft = new Float32Array(1000);
+    const paddedRight = new Float32Array(1000);
+    paddedLeft[99] = 0.5;
+    paddedRight[199] = 0.25;
+    bridge.audioCtx.decodeAudioData = async () => ({
+      numberOfChannels: 2, sampleRate: 1000, length: 1000, duration: 1,
+      getChannelData: (index) => index ? paddedRight : paddedLeft
+    });
+    const padded = await bridge.loadSampleFile(0, { name: 'padded.wav', arrayBuffer: async () => new ArrayBuffer(0) });
+    assert.equal(padded.trimEnd, 0.22);
     const changedLayer = { ...createDefaultState().layers[0], hp: 100, phaseOffset: 0.01 };
     const changedChannel = renderToStaticMarkup(React.createElement(ChannelStrip, {
       index: 0, layer: changedLayer, sampleBuffers: {}, sampleRates: {}, onChange: () => {}
@@ -217,16 +287,6 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(renderToStaticMarkup(help), /<button/);
     const disabledHelp = renderToStaticMarkup(React.createElement(HelpEnabledContext.Provider, { value: false }, help));
     assert.equal(disabledHelp, 'CONTROL');
-
-    assert.deepEqual(
-      getVisibleWavDragBounds({ left: 20, top: -5, right: 90, bottom: 25 }, 100, 100),
-      { x: 20, y: 0, width: 70, height: 25 }
-    );
-    assert.deepEqual(
-      getVisibleWavDragBounds({ left: 80, top: 90, right: 120, bottom: 110 }, 100, 100),
-      { x: 80, y: 90, width: 20, height: 10 }
-    );
-    assert.equal(getVisibleWavDragBounds({ left: 0, top: -40, right: 50, bottom: -1 }, 100, 100), null);
 
     const previousWindow = globalThis.window;
     const previousObserver = globalThis.ResizeObserver;
@@ -379,6 +439,7 @@ test('waveform viewer switches to the trace and shows source and output time axe
 
     const { SumComparison } = await server.ssrLoadModule('/src/components/LayerSumViewer.jsx');
     const { UI_THEMES } = await server.ssrLoadModule('/src/uiThemes.js');
+    assert.ok(UI_THEMES.some((theme) => theme.id === 'golden-nugget'));
     const waveform = { min: [-0.5], max: [0.5], transient: [0.5, -0.5] };
     const patch = createDefaultState();
     const comparison = { final: waveform, preMaster: waveform, layers: patch.layers.map(() => waveform), noise: waveform, sampleRate: 1000 };
@@ -699,6 +760,27 @@ test('stereo silence detection does not discard audio present only on the right'
   right.fill(0.5, 200, 800);
   assert.ok(detectSilenceStart(left, 0.01, right) > 0.15);
   assert.ok(detectSilenceEnd(left, 0.01, right) > 0.75);
+});
+
+test('new sample trim removes only trailing digital silence and preserves stereo tails', () => {
+  const left = new Float32Array(1000);
+  const right = new Float32Array(1000);
+  left[99] = 0.5;
+  assert.equal(getDefaultSampleTrimEnd(left, 1000), 0.12);
+  right[199] = 0.000001;
+  const trimEnd = getDefaultSampleTrimEnd(left, 1000, right);
+  assert.equal(trimEnd, 0.22);
+  assert.equal(getSampleTrimRange(left.length, 0, trimEnd).endSample, 220);
+  right[999] = 0.00000001;
+  assert.equal(getDefaultSampleTrimEnd(left, 1000, right), 1);
+  assert.equal(getDefaultSampleTrimEnd(new Float32Array(1000), 1000), 1);
+  const longSample = new Float32Array(10000);
+  longSample[0] = 1;
+  assert.equal(getDefaultSampleTrimEnd(longSample, 1000), 0.01);
+  assert.equal(getSampleTrimRange(longSample.length, 0, getDefaultSampleTrimEnd(longSample, 1000)).endSample, 100);
+  const shortTail = new Float32Array(1000);
+  shortTail[994] = 0.5;
+  assert.equal(getDefaultSampleTrimEnd(shortTail, 1000), 1);
 });
 
 test('glue compression is stereo-linked and saturation offers a clean mix', async () => {
@@ -1470,4 +1552,31 @@ test('noise decay is not cut short by the trigger gate', async () => {
   assert.ok(peakAt(0.3, 0.4) > 0.001);
   assert.ok(peakAt(0.3, 0.4) < peakAt(0, 0.05));
   assert.ok(peakAt(0.99, 1) < 0.001);
+});
+
+test('module knob reset restores defaults but keeps enable state and order', () => {
+  const state = createDefaultState();
+  state.master.busOrder = ['glue', 'noise', 'saturation'];
+  state.master.saturationEnabled = true;
+  state.master.saturationDrive = 0.9;
+  state.noise.enabled = true;
+  state.noise.cutoff = 123;
+  const defaults = createDefaultState();
+
+  const saturation = resetBusModuleKnobs(state, 'saturation');
+  assert.equal(saturation.master.saturationDrive, defaults.master.saturationDrive);
+  assert.equal(saturation.master.saturationEnabled, true);
+  assert.deepEqual(saturation.master.busOrder, ['glue', 'noise', 'saturation']);
+
+  const noise = resetBusModuleKnobs(state, 'noise');
+  assert.equal(noise.noise.cutoff, defaults.noise.cutoff);
+  assert.equal(noise.noise.enabled, true);
+});
+
+test('hit peak tracker holds the loudest value until a new hit starts', () => {
+  const tracker = createHitPeakTracker([0.001]);
+  tracker.update([0.2], 0);
+  assert.deepEqual(tracker.update([0.5], 50), [0.5]);
+  assert.deepEqual(tracker.update([0], 200), [0.5]);
+  assert.deepEqual(tracker.update([0.3], 1000), [0.3]);
 });

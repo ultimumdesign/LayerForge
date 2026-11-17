@@ -1,4 +1,4 @@
-import { getSamplePhaseShift, getSampleTrimRange } from '../../dsp/parameters.js';
+import { getSamplePhaseShift, getSampleTrimRange, MIN_TRIM_RANGE } from '../../dsp/parameters.js';
 import { getEnvelopeValueAt } from '../../dsp/envelope.js';
 
 export { getEnvelopeValueAt } from '../../dsp/envelope.js';
@@ -9,6 +9,15 @@ const WAVEFORM_AMPLITUDE_HEIGHT = 47;
 const ENVELOPE_BOTTOM_Y = 101;
 const ENVELOPE_HEIGHT = 90;
 const layerWaveformCache = new WeakMap();
+
+export function getDefaultSampleTrimEnd(samples, sampleRate, rightSamples = samples) {
+  if (!samples?.length) return 1;
+  let end = samples.length;
+  while (end > 0 && samples[end - 1] === 0 && rightSamples[end - 1] === 0) end -= 1;
+  if (end === 0) return 1;
+  const padding = Math.ceil(sampleRate * 0.02);
+  return Math.min(1, Math.max(MIN_TRIM_RANGE, (end + padding) / samples.length));
+}
 
 export function getEnvelopeDisplayY(value) {
   return ENVELOPE_BOTTOM_Y - value * ENVELOPE_HEIGHT;

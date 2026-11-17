@@ -48,9 +48,6 @@ private:
     std::unique_ptr<juce::WebBrowserComponent> webView;
     int traceGeneration = 0;
     bool traceEnabled = false;
-#if JUCE_MAC
-    std::unique_ptr<juce::NSViewComponent> nativeWavDragView;
-#endif
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool fileChooserActive = false;
     std::unordered_map<std::string, PendingSampleTransfer> pendingSampleTransfers;

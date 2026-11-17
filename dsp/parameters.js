@@ -382,3 +382,28 @@ export function createDefaultState() {
     }
   };
 }
+
+const BUS_MODULE_KNOBS = {
+  noise: ['cutoff', 'q', 'decay', 'clipDrive', 'gain'],
+  saturation: ['saturationDrive', 'saturationMix', 'saturationGainDb'],
+  glue: [
+    'glueThreshold', 'glueRatio', 'glueAttack', 'glueRelease', 'glueKnee',
+    'glueMix', 'glueGainDb'
+  ]
+};
+
+// Restores one signal-chain module's knobs. Enable state, bus order, and for
+// noise the trim window, gain envelope, mute and solo are left unchanged.
+export function resetBusModuleKnobs(state, module) {
+  const keys = BUS_MODULE_KNOBS[module];
+  if (!keys) return state;
+  const defaults = createDefaultState();
+  const section = module === 'noise' ? 'noise' : 'master';
+  return {
+    ...state,
+    [section]: {
+      ...state[section],
+      ...Object.fromEntries(keys.map((key) => [key, defaults[section][key]]))
+    }
+  };
+}

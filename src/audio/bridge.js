@@ -1,6 +1,7 @@
 import { Renderer as ElementaryRenderer } from '@elemaudio/core';
 import WebRenderer from '@elemaudio/web-renderer';
 import outputMonitorSource from './outputMonitorWorklet.js?raw';
+import { getDefaultSampleTrimEnd } from './waveform.js';
 
 function createNativeInstructionRemapper() {
   const mappedIds = new Map();
@@ -517,7 +518,8 @@ export class LayerForgeBridge {
       sampleRightKey: rightKey,
       durationSec: audioBuffer.duration,
       sampleRate: audioBuffer.sampleRate,
-      sampleCount: audioBuffer.length
+      sampleCount: audioBuffer.length,
+      trimEnd: getDefaultSampleTrimEnd(resources[vfsKey], audioBuffer.sampleRate, rightKey ? resources[rightKey] : undefined)
     };
   }
 
@@ -688,13 +690,6 @@ export class LayerForgeBridge {
     }
 
     return result;
-  }
-
-  setNativeWavDragTarget(key, bounds = {}, enabled = true) {
-    const postMessage = window._postMessageToPluginBackend;
-    if (!this.isNativePlugin || typeof postMessage !== 'function') return;
-
-    postMessage('wavDragTarget', { key, enabled, ...bounds });
   }
 
   saveNativeWav(key) {
