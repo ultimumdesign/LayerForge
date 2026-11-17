@@ -5,6 +5,7 @@ export default {
   ],
   rules: {
     'body-max-line-length': [2, 'always', 200],
-    'footer-max-line-length': [2, 'always', 200]
+    'footer-max-line-length': [2, 'always', 200],
+    'subject-case': [2, 'never', ['start-case', 'pascal-case', 'upper-case']]
   }
 };

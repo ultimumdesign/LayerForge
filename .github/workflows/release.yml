@@ -163,6 +163,13 @@ jobs:
       - name: Build VST3
         run: cmake --build native/build --config Release --target LayerForge_VST3 --parallel 3
 
+      - name: Run native feature tests
+        if: runner.os == 'macOS'
+        run: |
+          cmake -B native/build -S native -DCMAKE_BUILD_TYPE=Release -DLAYERFORGE_BUILD_TESTS=ON
+          cmake --build native/build --config Release --target LayerForgeNativeTests --parallel 3
+          native/build/LayerForgeNativeTests_artefacts/Release/LayerForgeNativeTests
+
       - name: Analyze native C++
         if: runner.os == 'macOS'
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4

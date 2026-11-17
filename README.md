@@ -15,14 +15,15 @@ JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
   per-channel pitch, delay, filters, transient shaper, clipper, stereo width,
   mix, mute and solo.
 - **Drawn dynamics:** edit trims and curved gain envelopes directly on the
-  processed waveform.
+  processed waveform. Newly loaded samples default to a shorter end trim when
+  they contain trailing digital silence; the full source remains available.
 - **Master bus:** reorderable noise, saturation and stereo-linked glue
   compression feeding a master clipper, ceiling and output trim, with
   per-effect gain, peak meters and compressor gain reduction.
 - **See what you hear:** compare final output, pre-master sum, each channel and
   noise in Output Scope, with a live trace of the last hit.
 - **Self-contained presets and exports:** `.lfpreset` files embed samples;
-  render a 24-bit / 44.1 kHz stereo WAV and drag or copy it into the DAW.
+  render a 24-bit / 44.1 kHz stereo WAV and copy it for pasting or save it.
 - **Sample-accurate MIDI** handled in the audio processor; patches play with
   the editor closed. DAW parameter automation is not exposed yet.
 
@@ -65,7 +66,7 @@ see [RELEASING.md](RELEASING.md).
 
 ### Troubleshooting
 
-Open **SYSTEM MENU → DIAGNOSTICS** and copy the report when filing an issue.
+Open **MENU → DIAGNOSTICS** and copy the report when filing an issue.
 
 ## Project layout
 
@@ -86,8 +87,8 @@ Release Please versions the project from Conventional Commits, and CI builds a
 macOS universal and a Windows x64 VST3 before creating a **draft** GitHub
 Release that a maintainer validates and publishes. Builds are not signed with a
 developer certificate or notarized, so macOS may show a Gatekeeper warning.
-Windows needs the Microsoft Edge WebView2 Runtime. Native drag-out of a WAV is
-macOS-only; on Windows save the WAV and drag the file. See
+Windows needs the Microsoft Edge WebView2 Runtime. WAV drag-out from the
+plug-in is not available; use copy/paste or save and import the WAV. See
 [RELEASING.md](RELEASING.md).
 
 ## License and contributing

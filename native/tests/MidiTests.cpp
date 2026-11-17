@@ -20,8 +20,10 @@ bool run()
     std::vector<float> sample(4410, 0.5f);
     sample[1] = -0.5f;
     source.storeSampleResource("kick", sample, sampleRate);
+    std::vector<float> rightSample(4410, 0.25f);
+    source.storeSampleResource("kick-right", rightSample, sampleRate);
     if (!source.setPatchStateJson(
-            R"({"layers":[{"loaded":true,"sampleKey":"kick","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true},"master":{"glueEnabled":true,"glueThreshold":-30,"glueRatio":8,"glueAttack":0.001}})"))
+            R"({"loadedPreset":"kick.lfpreset","layers":[{"loaded":true,"sampleKey":"kick","sampleRightKey":"kick-right","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true},"master":{"glueEnabled":true,"glueThreshold":-30,"glueRatio":8,"glueAttack":0.001}})"))
         return false;
     juce::MemoryBlock saved;
     source.getStateInformation(saved);
@@ -30,6 +32,17 @@ bool run()
     restored.setRateAndBufferSizeDetails(sampleRate, blockSize);
     restored.prepareToPlay(sampleRate, blockSize);
     restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+    const auto restoredState = juce::JSON::parse(restored.getPatchStateJson());
+    if (!expect(restoredState.getProperty("loadedPreset", {}).toString() == "kick.lfpreset",
+                "Loaded preset selection was not preserved in host state"))
+        return false;
+    const auto restoredSamples = restored.getStoredSamples();
+    bool foundRightSample = false;
+    for (const auto& stored : restoredSamples)
+        if (stored.key == "kick-right" && stored.samples == rightSample && stored.sampleRate == sampleRate)
+            foundRightSample = true;
+    if (!expect(foundRightSample, "Right-channel sample was not preserved in host state"))
+        return false;
     juce::AudioBuffer<float> audio(2, blockSize);
     juce::MidiBuffer midi;
     bool graphReady = false;
@@ -62,6 +75,9 @@ bool run()
         if (!expect(std::abs(audio.getSample(0, index)) < 1e-6f, "MIDI note sounded before its sample offset"))
             return false;
     if (!expect(std::abs(audio.getSample(0, 47)) > 1e-5f, "MIDI note did not start at its sample offset"))
+        return false;
+    if (!expect(audio.getSample(1, 47) > 1e-5f && audio.getSample(0, 47) > audio.getSample(1, 47),
+                "Restored stereo sample did not preserve its distinct channels"))
         return false;
     const auto fullVelocityOnset = std::abs(audio.getSample(0, 47));
 

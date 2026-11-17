@@ -36,7 +36,7 @@ at its position in the bus order. Only modules *after* noise process it.
 | Item | Behavior |
 |---|---|
 | Trigger | Any MIDI note-on (any note, any MIDI channel) or Space/click in the editor. Note-off is ignored, and the played note does not change pitch. |
-| Velocity | Linear scale `velocity/127` applied to the sum of channels and noise, **before** saturation, glue and the master clipper. Lower velocity therefore also drives the nonlinear stages less. |
+| Velocity | Linear scale `velocity/127` applied to the channel sum and to noise as each enters the bus. Lower velocity drives the master clipper and any downstream bus effects less; effects before the noise module do not process noise. |
 | Gate | A trigger raises a 28 ms gate. Samples are one-shots; the noise envelope restarts on a trigger but is not cut short by the gate (see [Noise synth](#noise-synth)). |
 | Native timing | The native processor reads MIDI sample positions within each audio block, so triggers are sample-accurate. Browser triggers use timers and Web MIDI and are not. |
 | Retriggering | Each channel has two alternating voices. A new hit starts immediately while the previous voice fades out with a 10 ms time constant, avoiding clicks. A third rapid hit reuses the oldest voice. |
@@ -51,7 +51,10 @@ at its position in the bus order. Only modules *after* noise process it.
   Linear interpolation without anti-alias filtering can add high-frequency
   artifacts when pitching up bright, transient-rich material.
 - **Trim.** `IN` and `OUT` are stored as fractions of the file (minimum
-  selection 1 %). Playback starts at IN and stops at OUT.
+  selection 1 %). Playback starts at IN and stops at OUT. Newly loaded samples
+  default to an OUT after the last nonzero sample in either channel plus 20 ms
+  of padding, bounded by the file end and minimum selection. Completely silent
+  files retain their full range. The source file and restored trims are unchanged.
 - **PLAY DLY.** A delay of 0–1000 ms applied after the envelope, via a
   384 000-sample delay line (8 s at 48 kHz).
 - **PHASE.** A signed alignment shift of up to ±5 % of the trimmed length. A
@@ -199,6 +202,14 @@ absolute sample across both channels over the meter update interval.
 Compressor WET REDUCTION reports the maximum of the actual linked wet-path
 gain reduction in dB over that interval, not an estimate from input/output
 levels or the dry/wet blend. It can remain nonzero when DRY/WET is 0.
+
+HIT PEAK readouts (UI only, no DSP effect) hold the largest meter-interval
+value since a hit began; a hit ends after 300 ms with peaks below 0.0001
+(about −80 dBFS) or reduction below 0.05 dB. They are interval peaks, not
+true-peak or inter-sample values.
+
+Resetting a module's knobs restores its parameter defaults (including OUTPUT
+and dry/wet where present) while leaving enable flags and bus order untouched.
 
 ### Master clipper, ceiling and output
 

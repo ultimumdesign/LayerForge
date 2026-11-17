@@ -49,6 +49,23 @@ export const UI_THEMES = [
     muted: '#aa9dbd',
     grid: '#7a64a1',
     channelColors: ['#b78cff', '#f27bd3', '#69b7ff']
+  },
+  {
+    id: 'golden-nugget',
+    label: 'GOLDEN NUGGET',
+    accent: '#e4a927',
+    accentSecondary: '#ffe078',
+    accentTertiary: '#65e9ef',
+    glow: 'rgba(255, 195, 73, 0.22)',
+    background: '#050507',
+    surface: '#0c0d12',
+    raised: '#171820',
+    panel: '#08090d',
+    border: '#52505a',
+    text: '#f9f4e5',
+    muted: '#b8b2a5',
+    grid: '#52989f',
+    channelColors: ['#ff4c89', '#56e5f3', '#b69bff']
   }
 ];
 

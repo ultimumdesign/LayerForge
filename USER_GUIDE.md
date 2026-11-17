@@ -16,13 +16,18 @@ guide covers the interface and workflow; for the underlying algorithms see the
 2. **Load a sample:** click an empty channel waveform to browse, or drop an
    audio file on it. Dropping on a loaded channel replaces the sample but keeps
    that channel's envelope and processing settings. Mono and stereo files work;
-   files with more than two channels are rejected.
+   files with more than two channels are rejected. On each new load, OUT is set
+   just past the last nonzero sample in either channel, with up to 20 ms of
+   padding. Only exact digital silence is shortened, so quiet tails are kept.
+   Entirely silent files stay untrimmed. The source file is unchanged and OUT
+   can be extended.
 3. **Audition:** play any MIDI note, or press **Space** when no text field or
    button has focus. Every note triggers the same sound; note pitch is ignored
    and velocity scales the level.
 4. **Shape:** trim the sample, draw the gain envelope, set MIX, then add other
    layers. The noise synth is off by default; select **OFF · ENABLE** to use it.
-5. **Export (optional):** **PREPARE WAV**, then **SAVE WAV**.
+5. **Export (optional):** **PREPARE WAV**, then **COPY WAV** and paste into
+   an audio track, or choose **SAVE WAV**.
 
 The rack follows the signal path: three sample channels → **SIGNAL CHAIN**
 (noise, saturation, glue) → **OUTPUT STAGE** → **OUTPUT SCOPE** display. Expand the
@@ -109,7 +114,10 @@ combined range but are not downmixed in the audio path. The preview updates when
 settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
 
 - **Trim:** drag IN and OUT to select the playable region without changing the
-  file. Hold **Ctrl** to snap to a nearby silence boundary. After a trim edit
+  file. New loads retain at least 1% of the file, and restoring an existing
+  patch keeps its saved trim. To recover the full source after automatic end
+  trimming, select **FULL** and drag OUT to the end. Hold **Ctrl** to snap to a
+  nearby silence boundary. After a trim edit
   the view recenters on the selection. **ZOOM** magnifies it, **FULL** shows the
   whole file, **FIT** returns to the selection. When zoomed, drag the scrollbar,
   use horizontal trackpad scrolling, or Shift-wheel to pan (the sum view works
@@ -194,9 +202,12 @@ DRY/WET 0. Its downward bar spans 0–36 dB; the numeric reading still shows
 values beyond that range.
 
 **Meters.** **OUTPUT PEAK** (Output Scope) measures post-OUTPUT signal in
-dBFS, holds peaks briefly and flags values at or above 0 dBFS. **LAST PEAK**
+dBFS, holds peaks briefly and flags values at or above 0 dBFS. **HIT PEAK**
 holds the highest peak of the latest audible burst (bursts are separated by
-300 ms below −80 dBFS). These are peak meters, not loudness meters. WAV export
+300 ms below −80 dBFS). The saturation and compressor input/output meters have
+their own HIT PEAK readouts, and the compressor shows MAX THIS HIT, the largest
+wet gain reduction of the latest hit (new bursts are separated by 300 ms of
+under 0.05 dB reduction). These are peak meters, not loudness meters. WAV export
 clips values above 0 dBFS.
 
 ## Output Scope and live trace
@@ -228,32 +239,53 @@ signal cannot be split into independent per-source contributions.
 
 ## Patches, presets and WAV export
 
-- **INITIALIZE PATCH** (SYSTEM MENU) resets settings and clears samples after
+- **INITIALIZE PATCH** (MENU) resets settings and clears samples after
   confirmation. Noise returns to disabled and the theme is kept. Existing
   presets and WAV files are not deleted.
 - **Host projects** embed settings and decoded sample audio, so project size
   grows with sample length. The theme is saved too.
-- **EXPORT PRESET** saves a self-contained `.lfpreset` (patch plus samples), not
-  a rendered WAV. The library folder is:
+- **PRESET** drop-down: choosing a preset loads it immediately. **SAVE AS** writes
+  the current patch and samples as a new self-contained `.lfpreset` (not a
+  rendered WAV). **SAVE** replaces the selected preset after confirmation (or
+  acts like SAVE AS when no preset is selected);
+  the old contents cannot be recovered. The selected preset name is stored
+  with the host project state, so it is still shown after the editor is closed
+  and reopened (the patch itself was already restored; if you edited it, the
+  name only shows which preset you started from). The library folder is:
 
   | OS | Path |
   |---|---|
   | macOS | `~/Library/LayerForge/Presets` |
   | Windows | `%APPDATA%\LayerForge\Presets` |
 
-  Copy presets into that folder and press **REFRESH**; right-click a preset to
-  delete it after confirmation. Names are limited to 100 characters, and
+  Copy presets into that folder and press the refresh button; the trash button
+  deletes the selected preset after confirmation. Names are limited to 100 characters, and
   duplicates get a numeric suffix.
 - **PREPARE WAV** renders the current mix in memory as 24-bit, 44.1 kHz stereo
   (regardless of host sample rate) from a full-velocity hit. Prepare again after
   any change. **SAVE WAV** lets you choose a destination; nothing is written
   automatically.
-- **COPY / DRAG WAV** uses the clipboard or, on macOS, a file promise until a
-  WAV is saved; afterwards a file reference can be used. If a DAW rejects it,
-  import the saved WAV through its browser. Native drag-out is macOS-only.
+- **COPY WAV** places a file reference on the clipboard; **COPIED** confirms
+  the clipboard write, not import into the DAW. Select an audio track or clip
+  slot and paste using the host's paste command. An unsaved WAV gets a temporary
+  transfer file, retained when the editor closes and removed on the next copy
+  in the plug-in process; transfer folders older than two hours may also be
+  removed when another temporary transfer is created. A saved WAV is referenced
+  directly and never deleted. WAV drag-out from the plug-in is not available.
+  If paste fails, use **SAVE WAV** and import the saved file.
 
-The system menu also offers theme selection (three palettes), hover help,
-diagnostics and a link to this guide. LayerForge does not write export caches
+The top bar has two fixed rows (presets, then audio, THEME and MENU) with
+fixed-width controls and a reserved status slot, so nothing moves when a WAV
+is prepared or a preset loads. It also holds a THEME picker, including **GOLDEN
+NUGGET** with animated RGB outlines around the chassis and panels;
+reduced-motion settings stop the animation.
+The signature beneath the logo opens ayatko's Instagram in your browser.
+The **MENU** offers the usage guide (the published manual), hover
+help, initialize, diagnostics and about.
+
+**Resetting module knobs.** Open a signal-chain module's gear dialog and press
+**RESET KNOBS** to restore its knobs to defaults after confirmation. On/off
+state, signal-chain position, noise trim/envelope, mute and solo are kept. Apart from those transfer files, LayerForge does not write export caches
 or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Troubleshooting
@@ -267,8 +299,8 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 | Too quiet or loud after saturation/glue | Adjust the effect's OUTPUT and watch its meters and OUTPUT PEAK. |
 | Harsh, gritty highs at high drive | Clippers and the saturator do not oversample; reduce drive or SHAPE, or low-pass the channel. |
 | Plug-in not found | Rescan in the DAW and confirm the build matches the platform (VST3 on macOS/Windows, AU on macOS). |
-| Copy or drag rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
-| Bug report | **SYSTEM MENU → DIAGNOSTICS**, copy the report, and include it. |
+| Copy fails or paste is rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
+| Bug report | **MENU → DIAGNOSTICS**, copy the report, and include it. |
 
 ## Limitations and validation
 
@@ -279,6 +311,6 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 - WAV export is fixed at 44.1 kHz / 24-bit.
 - Automated checks (`npm run check`: lint and the Node tests) cover DSP and
   waveform data, and optional native MIDI tests cover the processor. They do not
-  certify host workflows. Project/preset round trips, clipboard, drag/drop,
+  certify host workflows. Project/preset round trips, clipboard, sample import,
   window sizing and cross-platform behavior need manual testing in a DAW. See
   [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md).

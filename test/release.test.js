@@ -16,6 +16,8 @@ test('commitlint accepts GitHub squash messages without weakening ordinary commi
   assert.notEqual(lint('Align commitlint footer and body line limits (#7)\n').status, 0);
   assert.notEqual(lint('Initial plan\n').status, 0);
   assert.equal(lint('fix: allow long commit footer line\n').status, 0);
+  assert.equal(lint('feat: LCD-style top bar with SAVE / SAVE AS and LCD logo\n').status, 0);
+  assert.notEqual(lint('fix: ALL UPPERCASE SUBJECT\n').status, 0);
   assert.notEqual(lint('fix: ' + 'x'.repeat(150) + ' (#7)\n\n* Initial plan\n').status, 0);
 });
 

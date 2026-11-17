@@ -1,20 +1,15 @@
 import React, { useEffect, useState } from 'react';
-
-function formatPeak(peak) {
-  const decibels = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
-  return `${peak === 0 ? '-∞' : decibels < -60 ? '<-60' : decibels.toFixed(1)} dBFS`;
-}
+import { createHitPeakTracker, formatPeakDb as formatPeak, peakToDb } from '../audio/meterPeaks.js';
 
 export function OutputMeter() {
   const [peak, setPeak] = useState(0);
-  const [lastPeak, setLastPeak] = useState(0);
+  const [hitPeak, setHitPeak] = useState(0);
 
   useEffect(() => {
     let timeout;
     let heldPeak = 0;
     let heldUntil = 0;
-    let measuredPeak = 0;
-    let lastSignalTime = -Infinity;
+    const hitTracker = createHitPeakTracker([0.0001]);
     const onMeter = (event) => {
       const { min, max } = event.detail || {};
       if (!Number.isFinite(min) || !Number.isFinite(max)) {
@@ -23,11 +18,7 @@ export function OutputMeter() {
       }
       const currentPeak = Math.max(Math.abs(min), Math.abs(max));
       const now = performance.now();
-      if (currentPeak >= 0.0001) {
-        measuredPeak = now - lastSignalTime > 300 ? currentPeak : Math.max(measuredPeak, currentPeak);
-        lastSignalTime = now;
-        setLastPeak(measuredPeak);
-      }
+      if (currentPeak >= 0.0001) setHitPeak(hitTracker.update([currentPeak], now)[0]);
       if (currentPeak >= heldPeak || now >= heldUntil) {
         heldPeak = currentPeak;
         heldUntil = now + 150;
@@ -43,7 +34,7 @@ export function OutputMeter() {
     };
   }, []);
 
-  const decibels = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+  const decibels = peakToDb(peak);
   const level = Math.max(0, Math.min(1, (decibels + 60) / 60));
   const value = formatPeak(peak);
 
@@ -65,7 +56,7 @@ export function OutputMeter() {
         <div className={`output-meter-fill${peak >= 1 ? ' is-clipping' : ''}`} style={{ width: `${level * 100}%` }} />
       </div>
       <div className="meter-scale" aria-hidden="true"><span>−60</span><span>−40</span><span>−20</span><span>0 dBFS</span></div>
-      <div className="output-meter-last"><span>LAST PEAK</span><output aria-label="Last measured output peak">{formatPeak(lastPeak)}</output></div>
+      <div className="output-meter-last"><span>HIT PEAK</span><output aria-label="Highest output peak of the last hit">{formatPeak(hitPeak)}</output></div>
     </div>
   );
 }
