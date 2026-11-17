@@ -45,6 +45,12 @@ catch every vulnerability. Run `npm audit --audit-level=high` and
 for the audit. Workflow actions are pinned to commit SHAs; update those pins
 deliberately when upgrading the actions.
 
+The CI audit temporarily accepts only
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+in `picomatch` and findings caused solely by it. Other high/critical findings
+and audit failures still fail the job. Remove this exception and update the
+dependency when a fix is available; local `npm audit` continues to report it.
+
 ## Conventional Commits and versions
 
 Use Conventional Commit messages for PR titles and commits:
