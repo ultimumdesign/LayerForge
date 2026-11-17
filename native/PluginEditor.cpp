@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "PluginClipboard.h"
+#include "SampleHash.h"
 #include "BinaryData.h"
 #include <elem/AudioBufferResource.h>
 
@@ -25,6 +26,7 @@ struct PresetSampleData
     std::string originalKey;
     juce::String sourceName;
     juce::var sourceLocation;
+    juce::String sha256;
     double sampleRate = 44100.0;
     size_t sampleCount = 0;
     size_t layerIndex = 0;
@@ -36,6 +38,7 @@ struct PresetFileData
 {
     juce::var manifest;
     juce::var patch;
+    int version = 0;
     size_t sampleDataOffset = 0;
     std::vector<PresetSampleData> samples;
 };
@@ -54,8 +57,12 @@ bool readPresetManifest(const juce::File& file,
 
     char magic[sizeof(presetMagic)] {};
     if (stream.read(magic, sizeof(magic)) != static_cast<int>(sizeof(magic))
-        || std::memcmp(magic, presetMagic, sizeof(presetMagic)) != 0
-        || stream.readInt() != 1) {
+        || std::memcmp(magic, presetMagic, sizeof(presetMagic)) != 0) {
+        error = "Preset format is invalid or unsupported";
+        return false;
+    }
+    preset.version = stream.readInt();
+    if (preset.version != 1 && preset.version != 2) {
         error = "Preset format is invalid or unsupported";
         return false;
     }
@@ -79,8 +86,9 @@ bool readPresetManifest(const juce::File& file,
     const auto* manifestObject = preset.manifest.getDynamicObject();
     if (manifestObject == nullptr
         || manifestObject->getProperty("format").toString() != "LayerForgePreset"
-        || static_cast<int>(manifestObject->getProperty("version")) != 1
-        || manifestObject->getProperty("sampleEncoding").toString() != "float32le-mono") {
+        || static_cast<int>(manifestObject->getProperty("version")) != preset.version
+        || manifestObject->getProperty("sampleEncoding").toString()
+            != (preset.version == 1 ? "float32le-mono" : "file-reference")) {
         error = "Preset manifest is invalid or unsupported";
         return false;
     }
@@ -153,11 +161,23 @@ bool readPresetManifest(const juce::File& file,
         }
 
         matchedLayers[layerIndex][rightChannel ? 1 : 0] = true;
-        sampleDataBytes += byteCount;
+        if (preset.version == 1)
+            sampleDataBytes += byteCount;
         PresetSampleData sample;
         sample.originalKey = key;
         sample.sourceName = sampleObject->getProperty("sourceName").toString();
         sample.sourceLocation = sampleObject->getProperty("sourceLocation");
+        sample.sha256 = sampleObject->getProperty("sha256").toString();
+        const auto hash = sample.sha256.toStdString();
+        if (preset.version == 2
+            && (!juce::File::isAbsolutePath(sample.sourceLocation.toString())
+                || hash.size() != 64
+                || !std::all_of(hash.begin(), hash.end(), [](char c) {
+                    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                }))) {
+            error = "Preset contains an invalid sample reference";
+            return false;
+        }
         sample.sampleRate = sampleRate;
         sample.sampleCount = sampleCount;
         sample.layerIndex = layerIndex;
@@ -170,7 +190,7 @@ bool readPresetManifest(const juce::File& file,
         if (layer != nullptr && static_cast<bool>(layer->getProperty("loaded"))
             && (!matchedLayers[index][0]
                 || (layer->getProperty("sampleRightKey").toString().isNotEmpty() && !matchedLayers[index][1]))) {
-            error = "Preset is missing embedded sample data";
+            error = "Preset is missing sample data or references";
             return false;
         }
         if (matchedLayers[index][1]) {
@@ -179,7 +199,9 @@ bool readPresetManifest(const juce::File& file,
             const auto right = std::find_if(preset.samples.begin(), preset.samples.end(),
                 [index](const auto& sample) { return sample.layerIndex == index && sample.rightChannel; });
             if (left == preset.samples.end() || right == preset.samples.end()
-                || left->sampleCount != right->sampleCount || left->sampleRate != right->sampleRate) {
+                || left->sampleCount != right->sampleCount || left->sampleRate != right->sampleRate
+                || (preset.version == 2 && (left->sourceLocation.toString() != right->sourceLocation.toString()
+                                            || left->sha256 != right->sha256))) {
                 error = "Preset stereo channels have mismatched sample data";
                 return false;
             }
@@ -189,7 +211,7 @@ bool readPresetManifest(const juce::File& file,
     preset.sampleDataOffset = static_cast<size_t>(stream.getPosition());
     const auto expectedFileSize = static_cast<std::uint64_t>(preset.sampleDataOffset) + sampleDataBytes;
     if (expectedFileSize != static_cast<std::uint64_t>(file.getSize())) {
-        error = "Preset embedded sample data is missing or incomplete";
+        error = "Preset sample data is missing, incomplete, or unexpected";
         return false;
     }
 
@@ -300,7 +322,8 @@ void emitWavActionStatus(juce::WebBrowserComponent* browser,
 void emitPresetStatus(juce::WebBrowserComponent* browser,
                       const juce::String& status,
                       const juce::String& error = {},
-                      const juce::String& path = {})
+                      const juce::String& path = {},
+                      const juce::String& requestId = {})
 {
     if (browser == nullptr)
         return;
@@ -309,6 +332,7 @@ void emitPresetStatus(juce::WebBrowserComponent* browser,
     details->setProperty("status", status);
     details->setProperty("error", error);
     details->setProperty("path", path);
+    details->setProperty("requestId", requestId);
     browser->emitEventIfBrowserIsVisible("layerforgePresetStatus", details.get());
 }
 
@@ -342,7 +366,8 @@ void emitPresetLoadFailure(juce::WebBrowserComponent* browser,
 
 void emitPluginState(juce::WebBrowserComponent* browser,
                      const juce::String& requestId,
-                     const juce::String& stateJson)
+                     const juce::String& stateJson,
+                     std::uint64_t revision)
 {
     if (browser == nullptr)
         return;
@@ -350,6 +375,7 @@ void emitPluginState(juce::WebBrowserComponent* browser,
     juce::DynamicObject::Ptr details(new juce::DynamicObject());
     details->setProperty("requestId", requestId);
     details->setProperty("stateJson", stateJson);
+    details->setProperty("revision", static_cast<juce::int64>(revision));
     browser->emitEventIfBrowserIsVisible("layerforgePluginState", details.get());
 }
 
@@ -433,6 +459,9 @@ std::optional<juce::WebBrowserComponent::Resource> getUIResource(const juce::Str
 LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p)
 {
+    lastStateRevision = audioProcessor.getStateRevision();
+    lastParameterValues.resize(static_cast<size_t>(audioProcessor.getParameters().size()),
+                               std::numeric_limits<float>::quiet_NaN());
     auto browserOptions = juce::WebBrowserComponent::Options{};
 #if JUCE_WINDOWS
     const auto webViewDataFolder =
@@ -525,8 +554,26 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                     return;
                 }
                 if (type == "pluginState") {
-                    if (!audioProcessor.setPatchStateJson(messagePayload.toString()))
+                    const auto rawRevision = static_cast<juce::int64>(messagePayload.getProperty("revision", -1));
+                    if (rawRevision < 0) {
+                        reportNativeDiagnostic(webView.get(), "error", "Saved patch state has no valid revision");
+                        return;
+                    }
+                    const auto revision = static_cast<std::uint64_t>(rawRevision);
+                    if (!audioProcessor.setPatchStateJson(messagePayload.getProperty("stateJson", {}).toString(),
+                                                          false, revision)
+                        && audioProcessor.getStateRevision() == revision)
                         reportNativeDiagnostic(webView.get(), "error", "Invalid saved patch state from the UI");
+                    return;
+                }
+                if (type == "parameterChange") {
+                    const auto rawRevision = static_cast<juce::int64>(messagePayload.getProperty("revision", -1));
+                    if (rawRevision < 0)
+                        return;
+                    const auto revision = static_cast<std::uint64_t>(rawRevision);
+                    audioProcessor.setParameterFromEditor(messagePayload.getProperty("id", {}).toString(),
+                        static_cast<float>(static_cast<double>(messagePayload.getProperty("value", {}))),
+                        revision);
                     return;
                 }
 
@@ -538,10 +585,16 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                         return;
                     }
 
-                    for (const auto& sample : audioProcessor.getStoredSamples())
+                    juce::String stateJson;
+                    std::vector<LayerForgeAudioProcessor::StoredSample> samples;
+                    std::uint64_t revision;
+                    audioProcessor.getPluginStateSnapshot(stateJson, samples, revision);
+                    for (const auto& sample : samples)
                         emitSampleRestoreEvents(
                             webView.get(), requestId, sample.key, sample.samples, sample.sampleRate);
-                    emitPluginState(webView.get(), requestId, audioProcessor.getPatchStateJson());
+                    emitPluginState(webView.get(), requestId, stateJson, revision);
+                    std::fill(lastParameterValues.begin(), lastParameterValues.end(),
+                              std::numeric_limits<float>::quiet_NaN());
                     return;
                 }
 
@@ -567,17 +620,51 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                     return;
                 }
 
+                if (type == "readSampleFile") {
+                    const auto requestId = messagePayload.getProperty("requestId", {}).toString();
+                    const auto path = messagePayload.getProperty("path", {}).toString();
+                    if (requestId.isEmpty()) {
+                        reportNativeDiagnostic(webView.get(), "error", "Invalid referenced sample request");
+                        return;
+                    }
+                    if (!juce::File::isAbsolutePath(path)) {
+                        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+                        details->setProperty("requestId", requestId);
+                        details->setProperty("action", "error");
+                        details->setProperty("error", "The sample reference is not an absolute file path.");
+                        webView->emitEventIfBrowserIsVisible("layerforgeSampleFile", details.get());
+                        return;
+                    }
+                    sendSampleFile(requestId, juce::File(path));
+                    return;
+                }
+
                 if (type == "presetLoad") {
                     const auto requestId =
                         messagePayload.getProperty("requestId", juce::var()).toString();
                     const auto filename =
                         messagePayload.getProperty("filename", juce::var()).toString();
-                    if (requestId.isEmpty() || filename.isEmpty()) {
+                    const auto revision = static_cast<juce::int64>(messagePayload.getProperty("revision", -1));
+                    if (requestId.isEmpty() || filename.isEmpty() || revision < 0) {
                         reportNativeDiagnostic(webView.get(), "error", "Preset load request is incomplete");
                         emitPresetLoadFailure(webView.get(), requestId, "Preset load request is incomplete");
                         return;
                     }
-                    loadPreset(requestId, filename);
+                    loadPreset(requestId, filename, static_cast<std::uint64_t>(revision));
+                    return;
+                }
+
+                if (type == "presetApplyReferences") {
+                    const auto requestId = messagePayload.getProperty("requestId", {}).toString();
+                    const auto filename = messagePayload.getProperty("filename", {}).toString();
+                    const auto revision = static_cast<juce::int64>(messagePayload.getProperty("revision", -1));
+                    const auto samplesValue = messagePayload.getProperty("samples", {});
+                    const auto* samples = samplesValue.getArray();
+                    if (requestId.isEmpty() || filename.isEmpty() || revision < 0 || samples == nullptr) {
+                        emitPresetLoadFailure(webView.get(), requestId, "Referenced preset request is incomplete");
+                        return;
+                    }
+                    applyReferencePreset(requestId, filename, static_cast<std::uint64_t>(revision), *samples);
                     return;
                 }
 
@@ -869,6 +956,30 @@ void LayerForgeAudioProcessorEditor::timerCallback()
     if (webView == nullptr || !webView->isShowing())
         return;
 
+    const auto revision = audioProcessor.getStateRevision();
+    if (revision != lastStateRevision) {
+        lastStateRevision = revision;
+        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+        details->setProperty("revision", static_cast<juce::int64>(revision));
+        webView->emitEventIfBrowserIsVisible("layerforgeStateRestored", details.get());
+    }
+    const auto& parameters = audioProcessor.getParameters();
+    juce::DynamicObject::Ptr changes(new juce::DynamicObject());
+    bool changed = false;
+    for (int i = 0; i < parameters.size(); ++i) {
+        auto* parameter = dynamic_cast<juce::RangedAudioParameter*>(parameters[i]);
+        if (parameter == nullptr)
+            continue;
+        const auto value = parameter->convertFrom0to1(parameter->getValue());
+        if (lastParameterValues[static_cast<size_t>(i)] == value)
+            continue;
+        lastParameterValues[static_cast<size_t>(i)] = value;
+        changes->setProperty(parameter->paramID, static_cast<double>(value));
+        changed = true;
+    }
+    if (changed)
+        webView->emitEventIfBrowserIsVisible("layerforgeParameters", changes.get());
+
     const auto midiCount = audioProcessor.takeMidiTriggerCount();
     if (midiCount > 0) {
         const auto js = "window.dispatchEvent(new CustomEvent('layerforge:midi', { detail: { count: "
@@ -971,48 +1082,74 @@ void LayerForgeAudioProcessorEditor::chooseSample(const juce::String& requestId,
                 send(details);
                 return;
             }
-            const auto size = file.getSize();
-            juce::FileInputStream stream(file);
-            if (!stream.openedOk() || size <= 0 || size > std::numeric_limits<int>::max()) {
-                juce::DynamicObject::Ptr details(new juce::DynamicObject());
-                details->setProperty("action", "error");
-                details->setProperty("error", "Could not read the selected sample, or the file is too large.");
-                send(details);
-                return;
-            }
-            juce::DynamicObject::Ptr begin(new juce::DynamicObject());
-            begin->setProperty("action", "begin");
-            begin->setProperty("name", file.getFileName());
-            begin->setProperty("path", file.getFullPathName());
-            begin->setProperty("size", static_cast<int>(size));
-            send(begin);
-
-            std::array<unsigned char, 8192> buffer;
-            juce::int64 offset = 0;
-            while (offset < size) {
-                const auto count = static_cast<int>(std::min<juce::int64>(buffer.size(), size - offset));
-                if (stream.read(buffer.data(), count) != count) {
-                    juce::DynamicObject::Ptr error(new juce::DynamicObject());
-                    error->setProperty("action", "error");
-                    error->setProperty("error", "Could not read the complete sample file.");
-                    send(error);
-                    return;
-                }
-                juce::Array<juce::var> bytes;
-                bytes.ensureStorageAllocated(count);
-                for (int i = 0; i < count; ++i)
-                    bytes.add(static_cast<int>(buffer[static_cast<size_t>(i)]));
-                juce::DynamicObject::Ptr chunk(new juce::DynamicObject());
-                chunk->setProperty("action", "chunk");
-                chunk->setProperty("offset", static_cast<int>(offset));
-                chunk->setProperty("bytes", juce::var(bytes));
-                send(chunk);
-                offset += count;
-            }
-            juce::DynamicObject::Ptr end(new juce::DynamicObject());
-            end->setProperty("action", "end");
-            send(end);
+            editor.sendSampleFile(requestId, file);
         });
+}
+
+void LayerForgeAudioProcessorEditor::sendSampleFile(const juce::String& requestId, const juce::File& file)
+{
+    const auto send = [this, &requestId](juce::DynamicObject::Ptr details) {
+        details->setProperty("requestId", requestId);
+        webView->emitEventIfBrowserIsVisible("layerforgeSampleFile", details.get());
+    };
+    const auto size = file.getSize();
+    juce::FileInputStream stream(file);
+    if (size <= 0 || size > std::numeric_limits<int>::max() || !stream.openedOk()) {
+        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+        details->setProperty("action", "error");
+        details->setProperty("error", "Could not read the sample file, or the file is too large.");
+        send(details);
+        return;
+    }
+
+    juce::DynamicObject::Ptr begin(new juce::DynamicObject());
+    begin->setProperty("action", "begin");
+    begin->setProperty("name", file.getFileName());
+    begin->setProperty("path", file.getFullPathName());
+    begin->setProperty("size", static_cast<int>(size));
+    const auto hash = hashSampleStream(stream);
+    if (stream.getStatus().failed() || !stream.setPosition(0)) {
+        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+        details->setProperty("action", "error");
+        details->setProperty("error", "Could not reread the sample file.");
+        send(details);
+        return;
+    }
+    begin->setProperty("sha256", hash);
+    send(begin);
+
+    std::array<unsigned char, 8192> data;
+    for (juce::int64 offset = 0; offset < size;) {
+        const auto count = static_cast<int>(std::min<juce::int64>(data.size(), size - offset));
+        if (stream.read(data.data(), count) != count) {
+            juce::DynamicObject::Ptr details(new juce::DynamicObject());
+            details->setProperty("action", "error");
+            details->setProperty("error", "Could not read the complete sample file.");
+            send(details);
+            return;
+        }
+        juce::Array<juce::var> bytes;
+        bytes.ensureStorageAllocated(count);
+        for (int i = 0; i < count; ++i)
+            bytes.add(static_cast<int>(data[static_cast<size_t>(i)]));
+        juce::DynamicObject::Ptr chunk(new juce::DynamicObject());
+        chunk->setProperty("action", "chunk");
+        chunk->setProperty("offset", static_cast<int>(offset));
+        chunk->setProperty("bytes", juce::var(bytes));
+        send(chunk);
+        offset += count;
+    }
+    juce::String verifiedHash;
+    if (file.getSize() != size || !hashSampleFile(file, verifiedHash) || verifiedHash != hash) {
+        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+        details->setProperty("action", "error");
+        details->setProperty("error", "The sample file changed while it was being read.");
+        send(details);
+        return;
+    }
+    juce::DynamicObject::Ptr end(new juce::DynamicObject());
+    end->setProperty("action", "end");
+    send(end);
 }
 
 void LayerForgeAudioProcessorEditor::saveStagedWav(const std::string& key)
@@ -1105,7 +1242,8 @@ void LayerForgeAudioProcessorEditor::listPresets(const juce::String& requestId)
 
 void LayerForgeAudioProcessorEditor::loadPreset(
     const juce::String& requestId,
-    const juce::String& filename)
+    const juce::String& filename,
+    std::uint64_t revision)
 {
     const auto directory = getPresetDirectory();
     const auto file = directory.getChildFile(filename);
@@ -1119,6 +1257,19 @@ void LayerForgeAudioProcessorEditor::loadPreset(
 
     PresetFileData preset;
     juce::String error;
+    if (!readPresetManifest(file, preset, error)) {
+        reportNativeDiagnostic(webView.get(), "error", error);
+        emitPresetLoadFailure(webView.get(), requestId, error);
+        return;
+    }
+
+    if (preset.version == 2) {
+        juce::DynamicObject::Ptr details(new juce::DynamicObject());
+        details->setProperty("requestId", requestId);
+        details->setProperty("manifest", preset.manifest);
+        webView->emitEventIfBrowserIsVisible("layerforgePresetReferences", details.get());
+        return;
+    }
     if (!readPresetAudio(file, preset, error)) {
         reportNativeDiagnostic(webView.get(), "error", error);
         emitPresetLoadFailure(webView.get(), requestId, error);
@@ -1166,7 +1317,7 @@ void LayerForgeAudioProcessorEditor::loadPreset(
     }
 
     const auto stateJson = juce::JSON::toString(preset.patch);
-    if (!audioProcessor.setPatchStateJson(stateJson)) {
+    if (!audioProcessor.setPatchStateJson(stateJson, true, revision)) {
         const juce::String loadError = "Could not apply the preset patch configuration";
         reportNativeDiagnostic(webView.get(), "error", loadError);
         emitPresetLoadFailure(webView.get(), requestId, loadError);
@@ -1180,7 +1331,70 @@ void LayerForgeAudioProcessorEditor::loadPreset(
             sample.originalKey, std::move(sample.samples), sample.sampleRate);
     }
 
-    emitPluginState(webView.get(), requestId, stateJson);
+    emitPluginState(webView.get(), requestId, audioProcessor.getPatchStateJson(),
+                    audioProcessor.getStateRevision());
+    emitPresetStatus(webView.get(), "loaded", {}, filename);
+}
+
+void LayerForgeAudioProcessorEditor::applyReferencePreset(
+    const juce::String& requestId, const juce::String& filename, std::uint64_t revision,
+    const juce::Array<juce::var>& resolved)
+{
+    const auto directory = getPresetDirectory();
+    const auto file = directory.getChildFile(filename);
+    PresetFileData preset;
+    juce::String error;
+    if (filename.contains("/") || filename.contains("\\") || !filename.endsWithIgnoreCase(".lfpreset")
+        || file.getParentDirectory() != directory || !file.existsAsFile()
+        || !readPresetManifest(file, preset, error) || preset.version != 2) {
+        emitPresetLoadFailure(webView.get(), requestId,
+                              error.isNotEmpty() ? error : "Referenced preset is unavailable.");
+        return;
+    }
+    const auto layerValues = preset.patch.getProperty("layers", {});
+    auto* layers = layerValues.getArray();
+    const auto stored = audioProcessor.getStoredSamples();
+    for (const auto& expected : preset.samples) {
+        if (expected.rightChannel)
+            continue;
+        const auto match = std::find_if(resolved.begin(), resolved.end(), [&expected](const juce::var& item) {
+            return static_cast<int>(item.getProperty("layer", -1)) == static_cast<int>(expected.layerIndex);
+        });
+        if (match == resolved.end()) {
+            emitPresetLoadFailure(webView.get(), requestId, "A referenced sample was not loaded.");
+            return;
+        }
+        const auto path = match->getProperty("path", {}).toString();
+        const auto key = match->getProperty("sampleKey", {}).toString().toStdString();
+        const auto rightKey = match->getProperty("sampleRightKey", {}).toString().toStdString();
+        const auto right = std::find_if(preset.samples.begin(), preset.samples.end(), [&expected](const auto& sample) {
+            return sample.layerIndex == expected.layerIndex && sample.rightChannel;
+        });
+        const auto findSample = [&stored, &expected](const std::string& sampleKey) {
+            return std::find_if(stored.begin(), stored.end(), [&sampleKey, &expected](const auto& sample) {
+                return sample.key == sampleKey && sample.sampleRate == expected.sampleRate
+                    && sample.samples.size() == expected.sampleCount;
+            }) != stored.end();
+        };
+        juce::String hash;
+        if (!juce::File::isAbsolutePath(path) || !juce::File(path).existsAsFile()
+            || !hashSampleFile(juce::File(path), hash) || hash != expected.sha256
+            || key.empty() || !findSample(key)
+            || (right != preset.samples.end() ? rightKey.empty() || !findSample(rightKey) : !rightKey.empty())) {
+            emitPresetLoadFailure(webView.get(), requestId, "A referenced sample is missing, changed, or invalid.");
+            return;
+        }
+        auto* layer = (*layers)[static_cast<int>(expected.layerIndex)].getDynamicObject();
+        layer->setProperty("sampleKey", juce::String::fromUTF8(key.c_str()));
+        layer->setProperty("sampleRightKey", rightKey.empty() ? juce::var()
+            : juce::var(juce::String::fromUTF8(rightKey.c_str())));
+        layer->setProperty("sourceLocation", path);
+    }
+    if (!audioProcessor.setPatchStateJson(juce::JSON::toString(preset.patch), true, revision)) {
+        emitPresetLoadFailure(webView.get(), requestId, "Could not apply the referenced preset.");
+        return;
+    }
+    emitPluginState(webView.get(), requestId, audioProcessor.getPatchStateJson(), audioProcessor.getStateRevision());
     emitPresetStatus(webView.get(), "loaded", {}, filename);
 }
 
@@ -1211,28 +1425,55 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
 {
     const auto parsedPayload = juce::JSON::parse(payloadJson);
     const auto* payload = parsedPayload.getDynamicObject();
-    const auto parsedState = payload != nullptr
-        ? payload->getProperty("state")
-        : juce::var();
+    const auto requestId = payload != nullptr ? payload->getProperty("requestId").toString() : juce::String();
+    const auto fail = [this, &requestId](const juce::String& error) {
+        emitPresetStatus(webView.get(), "failed", error, {}, requestId);
+    };
+    const auto parsedState = payload != nullptr && payload->getProperty("state").isObject()
+        ? juce::JSON::parse(juce::JSON::toString(payload->getProperty("state"))) : juce::var();
     const auto stateJson = juce::JSON::toString(parsedState);
     auto* stateObject = parsedState.getDynamicObject();
     if (stateObject == nullptr) {
         const juce::String error = "Could not export an invalid patch state";
         reportNativeDiagnostic(webView.get(), "error", error);
-        emitPresetStatus(webView.get(), "failed", error);
+        fail(error);
         return;
     }
 
     const auto layers = stateObject->getProperty("layers");
     const auto* layerArray = layers.getArray();
+    const auto referenceValues = payload->getProperty("references");
+    const auto* references = referenceValues.getArray();
+    if (layerArray == nullptr || references == nullptr) {
+        fail("Sample references are missing.");
+        return;
+    }
     auto allSamples = audioProcessor.getStoredSamples();
     std::vector<LayerForgeAudioProcessor::StoredSample> samples;
-    if (layerArray != nullptr) {
-        for (const auto& layerValue : *layerArray) {
+    {
+        for (int layerIndex = 0; layerIndex < layerArray->size(); ++layerIndex) {
+            const auto& layerValue = (*layerArray)[layerIndex];
             const auto* layer = layerValue.getDynamicObject();
             if (layer == nullptr || !static_cast<bool>(layer->getProperty("loaded")))
                 continue;
 
+            const auto reference = std::find_if(references->begin(), references->end(),
+                [layerIndex](const juce::var& item) {
+                    return static_cast<int>(item.getProperty("layer", -1)) == layerIndex;
+                });
+            if (reference == references->end()) {
+                fail("A loaded channel has no sample reference.");
+                return;
+            }
+            const auto path = reference->getProperty("path", {}).toString();
+            const auto hash = reference->getProperty("sha256", {}).toString();
+            juce::String verifiedHash;
+            if (!juce::File::isAbsolutePath(path) || !juce::File(path).existsAsFile()
+                || hash.length() != 64 || !hashSampleFile(juce::File(path), verifiedHash)
+                || verifiedHash != hash) {
+                fail("A referenced sample is missing or changed; locate it and save again.");
+                return;
+            }
             for (const auto* property : { "sampleKey", "sampleRightKey" }) {
                 const auto key = layer->getProperty(property).toString().toStdString();
                 if (key.empty() && juce::String(property) == "sampleRightKey")
@@ -1244,7 +1485,7 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
                 if (key.empty() || sample == allSamples.end()) {
                     const juce::String error = "A loaded channel is missing its sample data; reload it before exporting";
                     reportNativeDiagnostic(webView.get(), "error", error);
-                    emitPresetStatus(webView.get(), "failed", error);
+                    fail(error);
                     return;
                 }
                 samples.push_back(*sample);
@@ -1256,7 +1497,7 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
     if (!directory.isDirectory() && directory.createDirectory().failed()) {
         const juce::String error = "Could not create the LayerForge preset folder";
         reportNativeDiagnostic(webView.get(), "error", error);
-        emitPresetStatus(webView.get(), "failed", error);
+        fail(error);
         return;
     }
 
@@ -1280,7 +1521,7 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
             || existing.getParentDirectory() != directory || !existing.existsAsFile()) {
             const juce::String error = "The preset to replace was not found in the LayerForge preset folder";
             reportNativeDiagnostic(webView.get(), "error", error);
-            emitPresetStatus(webView.get(), "failed", error);
+            fail(error);
             return;
         }
         destination = existing;
@@ -1289,26 +1530,31 @@ void LayerForgeAudioProcessorEditor::exportPreset(const juce::String& payloadJso
             destination = directory.getChildFile(presetName + " (" + juce::String(suffix) + ").lfpreset");
     }
 
-    writePresetFile(destination, stateJson, samples);
+    writePresetFile(destination, stateJson, samples, *references, requestId);
 }
 
 void LayerForgeAudioProcessorEditor::writePresetFile(
     const juce::File& destination,
     const juce::String& stateJson,
-    const std::vector<LayerForgeAudioProcessor::StoredSample>& samples)
+    const std::vector<LayerForgeAudioProcessor::StoredSample>& samples,
+    const juce::Array<juce::var>& references,
+    const juce::String& requestId)
 {
+    const auto fail = [this, &requestId](const juce::String& error) {
+        emitPresetStatus(webView.get(), "failed", error, {}, requestId);
+    };
     const auto parsedState = juce::JSON::parse(stateJson);
     auto* stateObject = parsedState.getDynamicObject();
     if (stateObject == nullptr) {
-        emitPresetStatus(webView.get(), "failed", "Could not serialize the patch configuration");
+        fail("Could not serialize the patch configuration");
         return;
     }
 
     juce::DynamicObject::Ptr manifest(new juce::DynamicObject());
     manifest->setProperty("format", "LayerForgePreset");
-    manifest->setProperty("version", 1);
+    manifest->setProperty("version", 2);
     manifest->setProperty("patch", parsedState);
-    manifest->setProperty("sampleEncoding", "float32le-mono");
+    manifest->setProperty("sampleEncoding", "file-reference");
 
     juce::Array<juce::var> sampleEntries;
     const auto layerValues = stateObject->getProperty("layers");
@@ -1316,13 +1562,16 @@ void LayerForgeAudioProcessorEditor::writePresetFile(
     for (size_t sampleIndex = 0; sampleIndex < samples.size(); ++sampleIndex) {
         const auto& sample = samples[sampleIndex];
         const juce::DynamicObject* layer = nullptr;
+        int layerIndex = -1;
         if (layers != nullptr) {
-            for (const auto& layerValue : *layers) {
+            for (int index = 0; index < layers->size(); ++index) {
+                const auto& layerValue = (*layers)[index];
                 const auto* candidate = layerValue.getDynamicObject();
                 if (candidate != nullptr
                     && (candidate->getProperty("sampleKey").toString().toStdString() == sample.key
                         || candidate->getProperty("sampleRightKey").toString().toStdString() == sample.key)) {
                     layer = candidate;
+                    layerIndex = index;
                     break;
                 }
             }
@@ -1330,15 +1579,20 @@ void LayerForgeAudioProcessorEditor::writePresetFile(
 
         juce::DynamicObject::Ptr entry(new juce::DynamicObject());
         entry->setProperty("key", juce::String::fromUTF8(sample.key.c_str()));
-        entry->setProperty(
-            "embeddedLocation", "samples/sample-" + juce::String(static_cast<int>(sampleIndex)) + ".f32");
+        const auto reference = std::find_if(references.begin(), references.end(),
+            [layerIndex](const juce::var& item) {
+                return static_cast<int>(item.getProperty("layer", -1)) == layerIndex;
+            });
+        if (reference == references.end()) {
+            fail("Could not serialize a sample reference.");
+            return;
+        }
         auto sourceName = layer != nullptr ? layer->getProperty("sourceName").toString() : juce::String();
         if (sourceName.isEmpty() && layer != nullptr)
             sourceName = layer->getProperty("name").toString();
         entry->setProperty("sourceName", sourceName);
-        entry->setProperty("sourceLocation", layer != nullptr
-            ? layer->getProperty("sourceLocation")
-            : juce::var());
+        entry->setProperty("sourceLocation", reference->getProperty("path", {}));
+        entry->setProperty("sha256", reference->getProperty("sha256", {}));
         entry->setProperty("sampleRate", sample.sampleRate);
         entry->setProperty("sampleCount", static_cast<int>(sample.samples.size()));
         sampleEntries.add(juce::var(entry.get()));
@@ -1348,20 +1602,12 @@ void LayerForgeAudioProcessorEditor::writePresetFile(
     const auto manifestJson = juce::JSON::toString(juce::var(manifest.get()));
     const auto manifestBytes = manifestJson.getNumBytesAsUTF8();
     if (manifestBytes > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        emitPresetStatus(webView.get(), "failed", "Preset manifest is too large");
+        fail("Preset manifest is too large");
         return;
     }
 
     constexpr char presetMagic[] = { 'L', 'F', 'P', 'R', 'E', 'S', 'E', 'T' };
-    auto expectedFileBytes = sizeof(presetMagic) + 2 * sizeof(int) + manifestBytes;
-    for (const auto& sample : samples) {
-        const auto sampleBytes = sample.samples.size() * sizeof(float);
-        if (sampleBytes > std::numeric_limits<size_t>::max() - expectedFileBytes) {
-            emitPresetStatus(webView.get(), "failed", "Preset sample data is too large");
-            return;
-        }
-        expectedFileBytes += sampleBytes;
-    }
+    const auto expectedFileBytes = sizeof(presetMagic) + 2 * sizeof(int) + manifestBytes;
 
     juce::TemporaryFile temporaryFile(destination);
     bool succeeded = false;
@@ -1370,17 +1616,14 @@ void LayerForgeAudioProcessorEditor::writePresetFile(
         if (!stream.openedOk()) {
             const juce::String error = "Could not open the preset file for writing";
             reportNativeDiagnostic(webView.get(), "error", error);
-            emitPresetStatus(webView.get(), "failed", error);
+            fail(error);
             return;
         }
 
         succeeded = stream.write(presetMagic, sizeof(presetMagic))
-            && stream.writeInt(1)
+            && stream.writeInt(2)
             && stream.writeInt(static_cast<int>(manifestBytes))
             && stream.write(manifestJson.toRawUTF8(), manifestBytes);
-        for (const auto& sample : samples)
-            succeeded = succeeded
-                && stream.write(sample.samples.data(), sample.samples.size() * sizeof(float));
         stream.flush();
     }
 
@@ -1389,9 +1632,9 @@ void LayerForgeAudioProcessorEditor::writePresetFile(
     if (!succeeded || !temporaryFile.overwriteTargetFileWithTemporary()) {
         const juce::String error = "Could not write the complete preset file";
         reportNativeDiagnostic(webView.get(), "error", error);
-        emitPresetStatus(webView.get(), "failed", error);
+        fail(error);
         return;
     }
 
-    emitPresetStatus(webView.get(), "saved", {}, destination.getFileName());
+    emitPresetStatus(webView.get(), "saved", {}, destination.getFileName(), requestId);
 }

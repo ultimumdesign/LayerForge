@@ -5,6 +5,9 @@ export function SystemMenu({
   isNativePlugin,
   helpEnabled,
   onToggleHelp,
+  borderTrace,
+  onCycleBorderTraceLevel,
+  onCycleBorderTraceSpeed,
   initializeDisabled,
   onInitialize,
   onAbout,
@@ -72,6 +75,14 @@ export function SystemMenu({
           </a>
           <button type="button" role="menuitemcheckbox" aria-checked={helpEnabled} onClick={run(onToggleHelp)}>
             <span>HOVER HELP</span><em>{helpEnabled ? 'ON' : 'OFF'}</em>
+          </button>
+          <button type="button" role="menuitem" onClick={onCycleBorderTraceLevel}
+            aria-label={`Border tracing intensity: ${borderTrace.level}. Activate to change.`}>
+            <span>BORDER TRACE</span><em>{borderTrace.level.toUpperCase()}</em>
+          </button>
+          <button type="button" role="menuitem" onClick={onCycleBorderTraceSpeed}
+            aria-label={`Border tracing speed: ${borderTrace.speed}. Activate to change.`}>
+            <span>TRACE SPEED</span><em>{borderTrace.speed.toUpperCase()}</em>
           </button>
           <hr />
           <button type="button" role="menuitem" disabled={initializeDisabled} onClick={run(onInitialize)}>

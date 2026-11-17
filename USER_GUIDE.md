@@ -4,11 +4,35 @@ LayerForge layers up to three samples and a noise synth into one drum hit. This
 guide covers the interface and workflow; for the underlying algorithms see the
 [DSP reference](docs/DSP.md).
 
-**Contents:** [Quick start](#quick-start) · [Signal flow](#signal-flow) ·
+**Contents:** [Installation](#installation) · [Quick start](#quick-start) · [Signal flow](#signal-flow) ·
 [Sample channels](#sample-channels) · [Waveform editing](#waveform-editing) ·
 [Noise synth](#noise-synth) · [Master bus](#master-bus) ·
 [Output Scope](#output-scope-and-live-trace) · [Patches, presets and export](#patches-presets-and-wav-export) ·
 [Troubleshooting](#troubleshooting) · [Limitations](#limitations-and-validation)
+
+## Installation
+
+1. Visit the [LayerForge releases page](https://github.com/ultimumdesign/LayerForge/releases)
+   and expand **Assets** on the latest published release. A newer draft is not
+   publicly downloadable until it is published.
+2. Download the ZIP for your system:
+   - **macOS:** `LayerForge-macos-universal-vst3.zip` (Apple Silicon and Intel).
+   - **Windows:** `LayerForge-windows-x64-vst3.zip` (64-bit Windows).
+3. Extract the ZIP and copy the entire `LayerForge.vst3` bundle, not just its
+   contents, into the appropriate folder:
+   - **macOS:** `~/Library/Audio/Plug-Ins/VST3/`. In Finder, use **Go → Go to
+     Folder**, enter that path, and create the VST3 folder if needed.
+   - **Windows:** `C:\Program Files\Common Files\VST3\`. Administrator
+     permission may be needed to copy into this folder.
+4. Restart or rescan plug-ins in your DAW. In Ableton Live, check **Settings →
+   Plug-Ins**, enable VST3 plug-ins and rescan. Load LayerForge on a MIDI track.
+
+The macOS download is ad-hoc signed, not notarized, so macOS may display a
+security warning. Only approve software you trust. Windows requires the
+[Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+The release downloads contain VST3 only; an AU can be built from source on
+macOS. See the [README](README.md#development-quick-start) for development
+builds.
 
 ## Quick start
 
@@ -16,11 +40,11 @@ guide covers the interface and workflow; for the underlying algorithms see the
 2. **Load a sample:** click an empty channel waveform to browse, or drop an
    audio file on it. Dropping on a loaded channel replaces the sample but keeps
    that channel's envelope and processing settings. Mono and stereo files work;
-   files with more than two channels are rejected. On each new load, OUT is set
-   just past the last nonzero sample in either channel, with up to 20 ms of
-   padding. Only exact digital silence is shortened, so quiet tails are kept.
-   Entirely silent files stay untrimmed. The source file is unchanged and OUT
-   can be extended.
+   files with more than two channels are rejected. On each new load, IN and OUT
+   are fitted around samples above −60 dB relative to the file's peak in either
+   channel, with up to 5 ms before and 20 ms after. Quieter beginnings or tails
+   may be outside the initial selection; listen and extend the handles if
+   needed. Entirely silent files stay untrimmed. The source file is unchanged.
 3. **Audition:** play any MIDI note, or press **Space** when no text field or
    button has focus. Every note triggers the same sound; note pitch is ignored
    and velocity scales the level.
@@ -40,6 +64,19 @@ location is known. If a dropped or restored sample has no known location you
 are asked to pick the original file; this records its location without
 changing the audio. Browser previews cannot reveal files. Long names scroll
 unless reduced-motion is enabled.
+
+## DAW macros and automation
+
+The native plug-in exposes the continuous channel, noise and master controls as
+host parameters. Use your DAW's plug-in parameter controls to select and map
+them to macros or record automation; the procedure varies by host. Mute, solo,
+bypass, routing, sample selection, trim and envelopes are not host parameters.
+
+The graph worker coalesces changes approximately every 20 ms, so automation
+is not sample-accurate and may take longer to reach the audio. Offline previews
+and WAV exports use the current control values, not the host automation
+timeline. Macro mapping and automation recording still need testing in each
+supported DAW.
 
 ## Signal flow
 
@@ -115,14 +152,15 @@ settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
 
 - **Trim:** drag IN and OUT to select the playable region without changing the
   file. New loads retain at least 1% of the file, and restoring an existing
-  patch keeps its saved trim. To recover the full source after automatic end
-  trimming, select **FULL** and drag OUT to the end. Hold **Ctrl** to snap to a
-  nearby silence boundary. After a trim edit
+  patch keeps its saved trim. To recover the full source after automatic
+  trimming, select **FULL** and drag IN to the start and OUT to the end. Hold
+  **Ctrl** to snap to a nearby silence boundary. After a trim edit
   the view recenters on the selection. **ZOOM** magnifies it, **FULL** shows the
   whole file, **FIT** returns to the selection. When zoomed, drag the scrollbar,
   use horizontal trackpad scrolling, or Shift-wheel to pan (the sum view works
-  the same way). After a channel trim changes, its playhead returns to the new
-  start marker and sweeps again on the next hit.
+  the same way). FIT includes up to 10% of the selection's length as visible
+  source context beyond each trimmed edge. After a channel trim changes, its
+  playhead returns to the new start marker and sweeps again on the next hit.
 - **DETAIL:** in the expanded editor or noise settings, selects 512, 2048 or
   4096 preview bins. It is shared by channel and noise waveforms and is
   display-only.
@@ -244,9 +282,18 @@ signal cannot be split into independent per-source contributions.
   presets and WAV files are not deleted.
 - **Host projects** embed settings and decoded sample audio, so project size
   grows with sample length. The theme is saved too.
-- **PRESET** drop-down: choosing a preset loads it immediately. **SAVE AS** writes
-  the current patch and samples as a new self-contained `.lfpreset` (not a
-  rendered WAV). **SAVE** replaces the selected preset after confirmation (or
+- **PRESET** drop-down: choosing another preset or **INIT PATCH** proceeds
+  immediately if the current patch is unchanged since it was loaded or saved.
+  If it has unsaved changes, a warning appears before replacing its settings and
+  samples. For saved presets, the warning offers **CANCEL**, **SAVE AS** or
+  **LOAD WITHOUT SAVING**; after saving, select the desired preset again.
+  Older project states without a saved comparison may still show a warning.
+  An edited patch without a selected preset appears as **CURRENT PATCH** so
+  INIT PATCH remains selectable.
+  **SAVE AS** writes the patch and references to its original sample files as
+  a `.lfpreset`; sample audio is not embedded. If a dropped sample has no known
+  path, locate the original when prompted. The selected file must match the
+  loaded audio. **SAVE** replaces the selected preset after confirmation (or
   acts like SAVE AS when no preset is selected);
   the old contents cannot be recovered. The selected preset name is stored
   with the host project state, so it is still shown after the editor is closed
@@ -260,7 +307,14 @@ signal cannot be split into independent per-source contributions.
 
   Copy presets into that folder and press the refresh button; the trash button
   deletes the selected preset after confirmation. Names are limited to 100 characters, and
-  duplicates get a numeric suffix.
+  duplicates get a numeric suffix. Keep the referenced files when moving or
+  sharing presets. If a source file moves or changes, loading asks you to locate
+  an identical original; canceling or selecting a different file leaves the
+  current patch unchanged. Older embedded-sample presets remain readable, but
+  older LayerForge versions cannot open the new reference-only preset format.
+  Checking and transferring large sample files can take time and may temporarily
+  make the plug-in editor unresponsive. If saving reports an unconfirmed result,
+  refresh the preset library before retrying: the file may still have been saved.
 - **PREPARE WAV** renders the current mix in memory as 24-bit, 44.1 kHz stereo
   (regardless of host sample rate) from a full-velocity hit. Prepare again after
   any change. **SAVE WAV** lets you choose a destination; nothing is written
@@ -276,12 +330,21 @@ signal cannot be split into independent per-source contributions.
 
 The top bar has two fixed rows (presets, then audio, THEME and MENU) with
 fixed-width controls and a reserved status slot, so nothing moves when a WAV
-is prepared or a preset loads. It also holds a THEME picker, including **GOLDEN
-NUGGET** with animated RGB outlines around the chassis and panels;
-reduced-motion settings stop the animation.
-The signature beneath the logo opens ayatko's Instagram in your browser.
-The **MENU** offers the usage guide (the published manual), hover
-help, initialize, diagnostics and about.
+is prepared or a preset loads. The THEME picker offers palettes with animated
+outlines around the chassis and panels, colored to match each theme. **GOLDEN
+NUGGET** is the default and uses RGB outlines. Your chosen theme is remembered
+in the browser and saved with the native host project. **HIGH CONTRAST** uses
+brighter text and controls, stronger keyboard focus outlines, and a static
+frame and logo cursor. System
+reduced-motion settings also stop the animated outlines in other themes.
+In **MENU**, select **BORDER TRACE** to cycle between NORMAL, OFF and SUBTLE,
+and **TRACE SPEED** to cycle between NORMAL, FAST and SLOW. These affect only
+the decorative outlines, not the Output Scope's audio trace. The browser
+remembers these choices locally; the native plug-in saves them with the host
+project. HIGH CONTRAST and system reduced-motion settings remain static.
+The **MENU** also offers the usage guide (the published manual), hover help,
+initialize, diagnostics and about. The signature above **CLOSE** in the
+**ABOUT** popup opens ayatko's Instagram in your browser.
 
 **Resetting module knobs.** Open a signal-chain module's gear dialog and press
 **RESET KNOBS** to restore its knobs to defaults after confirmation. On/off
@@ -304,8 +367,8 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Limitations and validation
 
-- DAW parameter automation is **not yet exposed**; automate by playing MIDI and
-  using saved patches.
+- DAW parameter automation is coalesced by the graph worker and is not
+  sample-accurate; host mapping and recording require interactive validation.
 - Native MIDI is processed in the audio processor with sample-accurate
   timing, and restored patches play with the editor closed.
 - WAV export is fixed at 44.1 kHz / 24-bit.

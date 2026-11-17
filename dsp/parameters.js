@@ -32,7 +32,8 @@ export const PARAMETER_SCHEMA = [
     { id: `l${i}_clipHardness`, name: `Layer ${i + 1} Clip Shape`, min: 0, max: 1, default: 0.25, unit: '' },
     { id: `l${i}_inputDb`, name: `Layer ${i + 1} Sample Gain`, min: -60, max: 12, default: 0, unit: 'dB' },
     { id: `l${i}_width`, name: `Layer ${i + 1} Stereo Width`, min: 0, max: 2, default: 1, unit: '' },
-    { id: `l${i}_gain`, name: `Layer ${i + 1} Mix`, min: 0, max: 1.5, default: 1, unit: '' }
+    { id: `l${i}_gain`, name: `Layer ${i + 1} Mix`, min: 0, max: 1.5, default: 1, unit: '' },
+    { id: `l${i}_phaseOffset`, name: `Layer ${i + 1} Phase Offset`, min: -0.05, max: 0.05, default: 0, unit: '' }
   ]).flat(),
 
   // Noise Engine parameters
@@ -176,7 +177,7 @@ function sanitizeEnvelopePoints(points) {
     if (point.time <= 0 || point.time >= 1) continue;
     if (
       interior.length < 10 &&
-      point.time - (interior.at(-1)?.time ?? 0) >= 0.005 &&
+      point.time - (interior[interior.length - 1]?.time ?? 0) >= 0.005 &&
       1 - point.time >= 0.005
     ) {
       interior.push(point);

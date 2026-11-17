@@ -93,12 +93,32 @@ Before publishing a draft, validate the exact ZIPs from that draft:
    Test clean installation on macOS (both architectures where available) and
    Windows, including plug-in discovery and the WebView2 runtime requirement.
 2. In supported DAWs, test MIDI playback with the editor both open and closed,
-   timing, host project save/reopen, preset round-trips, sample loading, WAV
+   timing, host macro mapping and automation with the editor open and closed,
+   host project save/reopen, preset round-trips, sample loading, WAV
    save, sample import and clipboard paste. Check behavior after multiple instances, playback
    start/stop, editor reopen, and sample-rate or buffer-size changes.
+   For presets, check mono and stereo references, an unknown dropped-file
+   location, moved or modified source files and relinking, a canceled or wrong
+   relink, legacy embedded presets, and unchanged versus edited INIT selection.
+   Use a disposable DAW project and copies of sample files:
+   - Save a mono and a stereo preset, reload each, and compare the sound,
+     trims, envelopes, effects and stereo channels. Confirm the preset file
+     contains references rather than embedded audio.
+   - Move a source and relink the identical file; then modify a copy, select
+     the wrong file, and cancel relinking. Each failed load must leave the
+     current patch unchanged.
+   - Load a version 1 embedded preset, save it as a new referenced preset,
+     and reopen it. Save and reopen the DAW project after moving a source:
+     its embedded audio should still play.
+     New referenced presets cannot be loaded by older plug-in versions.
+   - Select INIT from an unchanged saved preset and from an edited patch;
+     only the edited patch should show the unsaved-changes warning. Repeat
+     after reopening the project. Test mapped automation with the editor open
+     and closed.
 3. Address or explicitly accept the known limitations in
    [USER_GUIDE.md](USER_GUIDE.md#limitations-and-validation). In particular,
-   DAW parameter automation is not exposed. WAV paste has been reported working
+   Parameter automation is coalesced by a background graph worker and is not
+   sample-accurate. WAV paste has been reported working
    in Ableton on macOS, but other hosts and Windows require validation; WAV
    drag-out is not available. Native MIDI is handled
    sample-accurately in the audio processor and should work with the editor

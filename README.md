@@ -9,23 +9,41 @@ Built with [Elementary Audio](https://www.elementary.audio/), React and
 JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
 **GPL-3.0-or-later**.
 
+## Download and install VST3
+
+1. Open the [LayerForge releases page](https://github.com/ultimumdesign/LayerForge/releases)
+   and expand **Assets** on the latest published release.
+2. Download `LayerForge-macos-universal-vst3.zip` for macOS or
+   `LayerForge-windows-x64-vst3.zip` for 64-bit Windows. Unzip it and copy the
+   complete `LayerForge.vst3` bundle to:
+   - macOS: `~/Library/Audio/Plug-Ins/VST3/`
+   - Windows: `C:\Program Files\Common Files\VST3\` (administrator permission
+     may be required)
+3. Rescan VST3 plug-ins in your DAW, then load LayerForge on a MIDI track.
+
+macOS builds are not notarized and may show a security warning. Windows needs
+the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/).
+The latest published release may not include newer changes on `main`; draft
+releases are not public. Release ZIPs contain VST3, not AU. For details, see
+the [installation guide](USER_GUIDE.md#installation).
+
 ## Highlights
 
 - **Layering:** three mono/stereo sample channels plus a noise synth, with
   per-channel pitch, delay, filters, transient shaper, clipper, stereo width,
   mix, mute and solo.
 - **Drawn dynamics:** edit trims and curved gain envelopes directly on the
-  processed waveform. Newly loaded samples default to a shorter end trim when
-  they contain trailing digital silence; the full source remains available.
+  processed waveform. Newly loaded samples fit their trim around audible
+  content; the full source remains available.
 - **Master bus:** reorderable noise, saturation and stereo-linked glue
   compression feeding a master clipper, ceiling and output trim, with
   per-effect gain, peak meters and compressor gain reduction.
 - **See what you hear:** compare final output, pre-master sum, each channel and
   noise in Output Scope, with a live trace of the last hit.
-- **Self-contained presets and exports:** `.lfpreset` files embed samples;
+- **Presets and exports:** `.lfpreset` files reference original samples;
   render a 24-bit / 44.1 kHz stereo WAV and copy it for pasting or save it.
-- **Sample-accurate MIDI** handled in the audio processor; patches play with
-  the editor closed. DAW parameter automation is not exposed yet.
+- **Host integration:** sample-accurate MIDI and continuous parameters for
+  DAW automation and macro mapping. Host-specific behavior requires testing.
 
 ## Documentation
 
@@ -37,7 +55,7 @@ JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
 | [Contributing](CONTRIBUTING.md) | Setup, project layout, tests, pull requests |
 | [Releasing](RELEASING.md) | CI, versioning, release validation |
 
-## Quick start
+## Development quick start
 
 **Prerequisites:** Node.js 22+, Git, CMake 3.22+ and the platform's C++
 toolchain (Xcode Command Line Tools on macOS; Visual Studio build tools on

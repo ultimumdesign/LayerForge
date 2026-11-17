@@ -10,13 +10,26 @@ const ENVELOPE_BOTTOM_Y = 101;
 const ENVELOPE_HEIGHT = 90;
 const layerWaveformCache = new WeakMap();
 
-export function getDefaultSampleTrimEnd(samples, sampleRate, rightSamples = samples) {
-  if (!samples?.length) return 1;
+export function getDefaultSampleTrim(samples, sampleRate, rightSamples = samples) {
+  if (!samples?.length) return { trimStart: 0, trimEnd: 1 };
+  let peak = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    peak = Math.max(peak, Math.abs(samples[index]), Math.abs(rightSamples[index]));
+  }
+  if (peak === 0) return { trimStart: 0, trimEnd: 1 };
+
+  const threshold = peak * 0.001;
+  let first = 0;
   let end = samples.length;
-  while (end > 0 && samples[end - 1] === 0 && rightSamples[end - 1] === 0) end -= 1;
-  if (end === 0) return 1;
-  const padding = Math.ceil(sampleRate * 0.02);
-  return Math.min(1, Math.max(MIN_TRIM_RANGE, (end + padding) / samples.length));
+  while (first < end && Math.abs(samples[first]) <= threshold && Math.abs(rightSamples[first]) <= threshold) first += 1;
+  while (end > first && Math.abs(samples[end - 1]) <= threshold && Math.abs(rightSamples[end - 1]) <= threshold) end -= 1;
+
+  let startSample = Math.max(0, first - Math.ceil(sampleRate * 0.005));
+  let endSample = Math.min(samples.length, end + Math.ceil(sampleRate * 0.02));
+  const minimumLength = Math.ceil(samples.length * MIN_TRIM_RANGE);
+  endSample = Math.min(samples.length, Math.max(endSample, startSample + minimumLength));
+  startSample = Math.max(0, Math.min(startSample, endSample - minimumLength));
+  return { trimStart: startSample / samples.length, trimEnd: endSample / samples.length };
 }
 
 export function getEnvelopeDisplayY(value) {
@@ -114,10 +127,10 @@ export function getSampleAreaPath(samples, sampleCount, scale, otherSamples = sa
 
 export function getTrimmedPreviewRange(trimStart, trimEnd) {
   const span = trimEnd - trimStart;
-  const margin = Math.min(span * 0.1, trimStart, 1 - trimEnd);
+  const margin = span * 0.1;
   return {
-    start: trimStart - margin,
-    end: trimEnd + margin
+    start: Math.max(0, trimStart - margin),
+    end: Math.min(1, trimEnd + margin)
   };
 }
 

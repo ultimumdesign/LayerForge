@@ -66,9 +66,39 @@ export const UI_THEMES = [
     muted: '#b8b2a5',
     grid: '#52989f',
     channelColors: ['#ff4c89', '#56e5f3', '#b69bff']
+  },
+  {
+    id: 'high-contrast',
+    label: 'HIGH CONTRAST',
+    accent: '#70d7ff',
+    accentSecondary: '#ffdc61',
+    accentTertiary: '#8be8ff',
+    glow: 'rgba(112, 215, 255, 0.2)',
+    background: '#080808',
+    surface: '#0d0d0d',
+    raised: '#1a1a1a',
+    panel: '#000000',
+    border: '#c4c4c4',
+    text: '#ffffff',
+    muted: '#dedede',
+    grid: '#969696',
+    channelColors: ['#7edbff', '#ffe16b', '#eac0ff']
   }
 ];
 
+export const DEFAULT_UI_THEME_ID = 'golden-nugget';
+
 export function getUiTheme(id) {
-  return UI_THEMES.find((theme) => theme.id === id) || UI_THEMES[0];
+  return UI_THEMES.find((theme) => theme.id === id) ||
+    UI_THEMES.find((theme) => theme.id === DEFAULT_UI_THEME_ID);
+}
+
+export const BORDER_TRACE_LEVELS = ['off', 'subtle', 'normal'];
+export const BORDER_TRACE_SPEEDS = ['slow', 'normal', 'fast'];
+
+export function getBorderTraceSettings(settings) {
+  return {
+    level: BORDER_TRACE_LEVELS.includes(settings?.level) ? settings.level : 'normal',
+    speed: BORDER_TRACE_SPEEDS.includes(settings?.speed) ? settings.speed : 'normal'
+  };
 }

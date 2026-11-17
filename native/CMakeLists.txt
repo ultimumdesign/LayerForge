@@ -59,6 +59,7 @@ target_sources(LayerForge PRIVATE
     PluginEditor.cpp
     PluginEditor.h
 )
+target_include_directories(LayerForge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/build/generated")
 
 if(APPLE)
     target_sources(LayerForge PRIVATE PluginClipboard_mac.mm PluginClipboard.h)
@@ -76,6 +77,7 @@ target_compile_definitions(LayerForge PUBLIC
 target_link_libraries(LayerForge PRIVATE
     elem::runtime
     juce::juce_audio_utils
+    juce::juce_cryptography
     juce::juce_gui_extra
     juce::juce_javascript
     juce::juce_recommended_config_flags

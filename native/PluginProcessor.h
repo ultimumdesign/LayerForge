@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -62,8 +63,14 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
-    bool setPatchStateJson(const juce::String& json);
+    bool setPatchStateJson(const juce::String& json, bool importParameters = true,
+                           std::uint64_t expectedRevision = std::numeric_limits<std::uint64_t>::max());
     juce::String getPatchStateJson() const;
+    void getPluginStateSnapshot(juce::String& json, std::vector<StoredSample>& samples,
+                                std::uint64_t& revision) const;
+    std::uint64_t getStateRevision() const { return stateRevision.load(std::memory_order_acquire); }
+    void setParameterFromEditor(const juce::String& id, float value,
+                                std::uint64_t expectedRevision = std::numeric_limits<std::uint64_t>::max());
     void storeSampleResource(std::string key, std::vector<float> samples, double sampleRate);
     std::vector<StoredSample> getStoredSamples() const;
     void setOutputTrace(bool enabled, int generation);
@@ -79,7 +86,11 @@ public:
 
 private:
     class GraphWorker;
+    class HostParameter;
     void requestGraphRebuild();
+    void importPatchParameters(const juce::var& patch, bool notifyHost,
+                               std::uint64_t revision = std::numeric_limits<std::uint64_t>::max());
+    juce::var overlayParameters(juce::var patch) const;
     mutable juce::CriticalSection patchStateLock;
     juce::String patchStateJson;
     std::unordered_map<std::string, StoredSample> storedSamples;
@@ -87,6 +98,9 @@ private:
     juce::CriticalSection graphWriteLock;
     std::unique_ptr<GraphWorker> graphWorker;
     std::atomic<std::uint64_t> graphGeneration { 0 };
+    std::atomic<std::uint64_t> runtimeGeneration { 0 };
+    std::atomic<std::uint64_t> stateRevision { 0 };
+    std::vector<HostParameter*> hostParameters;
     juce::AudioBuffer<float> scratchBuffer;
     juce::AudioBuffer<float> midiSignals;
     int midiGateRemaining = 0;
