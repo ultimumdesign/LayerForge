@@ -23,15 +23,15 @@ manual dispatches:
    findings but does not itself fail on alerts; review them before publishing.
 3. **Build matrix** starts only after quality and JavaScript security pass. The macOS runner builds a
    universal VST3; the Windows runner builds an x64 VST3. Each runner packages
-   and checks its ZIP and binary; macOS also runs native MIDI and host-state
-   tests and checks signature, architectures and bundle version. Each uploads
-   its ZIP as a workflow artifact.
+   and checks its ZIP, binary and plug-in version against `package.json`;
+   macOS also runs native MIDI and host-state tests and checks the signature
+   and architectures. Each uploads its ZIP as a workflow artifact.
 4. **Release** runs only for pushes to `main`, after both matrix builds pass.
    Release Please either opens/updates a version PR or, when a version PR has
    been merged, creates the version tag and a draft GitHub Release. The job
-   verifies the tag points to the built commit, then uploads both VST3 ZIPs.
-   If the commit does not match, the job fails instead of attaching the wrong
-   binaries; investigate and build the tagged commit before publishing.
+   verifies the tag matches the package version and points to the built commit,
+   then uploads both VST3 ZIPs. If either check fails, the job fails instead of
+   attaching the wrong binaries; investigate before publishing.
 
 Pull requests and **Actions → Build plug-in releases → Run workflow** builds
 produce downloadable workflow artifacts but do not publish a GitHub Release.
@@ -68,8 +68,9 @@ Release Please uses `.release-please-manifest.json` as the starting version and
 opens a PR that updates `package.json`, `package-lock.json`, the manifest, and
 `CHANGELOG.md`. Do not manually bump the version for ordinary changes. Merge the
 release PR when it is ready; the merge starts a fresh quality and build run.
-The CMake project reads the version from `package.json`, so the published
-plug-in metadata matches the release version.
+The interface and CMake project both read the version from `package.json`, so
+the release builds use the same version for the display and plug-in metadata.
+Publishing a release does not automatically update an installed plug-in.
 
 ## Repository setup and permissions
 

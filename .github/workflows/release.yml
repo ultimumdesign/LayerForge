@@ -201,6 +201,12 @@ jobs:
           if (!(Test-Path $binary -PathType Leaf) -or (Get-Item $binary).Length -eq 0) {
             throw "Windows x64 VST3 binary is missing or empty"
           }
+          $expectedVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $actualVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo(
+            (Resolve-Path $binary).Path).ProductVersion
+          if ($actualVersion -ne $expectedVersion) {
+            throw "Windows VST3 version $actualVersion does not match package version $expectedVersion"
+          }
           Compress-Archive -Path $plugin -DestinationPath "${{ matrix.asset }}" -CompressionLevel Optimal -Force
           $archive = [System.IO.Compression.ZipFile]::OpenRead("${{ matrix.asset }}")
           try {
@@ -253,6 +259,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
         run: |
+          node scripts/check-release.mjs --tag "$RELEASE_TAG"
           git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           tag_commit=$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")
           if [ "$tag_commit" != "$GITHUB_SHA" ]; then

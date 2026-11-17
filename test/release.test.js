@@ -33,31 +33,36 @@ test('release metadata check rejects inconsistent versions and package names', (
   const directory = mkdtempSync(join(tmpdir(), 'layerforge-release-test-'));
   const files = ['package.json', 'package-lock.json', '.release-please-manifest.json'];
   const write = (file, value) => writeFileSync(join(directory, file), JSON.stringify(value));
-  const run = () => spawnSync(process.execPath, [script], { cwd: directory, encoding: 'utf8' });
+  const run = (...args) => spawnSync(process.execPath, [script, ...args], { cwd: directory, encoding: 'utf8' });
   try {
-    write(files[0], { name: 'layerforge-vst3', version: '0.1.0' });
+    write(files[0], { name: 'layerforge-vst3', version: '1.0.0' });
     write(files[1], {
-      name: 'layerforge-vst3', version: '0.1.0',
-      packages: { '': { name: 'layerforge-vst3', version: '0.1.0' } }
+      name: 'layerforge-vst3', version: '1.0.0',
+      packages: { '': { name: 'layerforge-vst3', version: '1.0.0' } }
     });
-    write(files[2], { '.': '0.1.0' });
+    write(files[2], { '.': '1.0.0' });
     assert.equal(run().status, 0);
+    assert.equal(run('--tag', 'v1.0.0').status, 0);
+    const badTag = run('--tag', 'v0.3.0');
+    assert.notEqual(badTag.status, 0);
+    assert.match(badTag.stderr, /Release tag v0\.3\.0 does not match package\.json version/);
+    assert.notEqual(run('--tag').status, 0);
 
     write(files[2], { '.': '0.2.0' });
     const badVersion = run();
     assert.notEqual(badVersion.status, 0);
     assert.match(badVersion.stderr, /does not match package\.json version/);
 
-    write(files[2], { '.': '0.1.0' });
+    write(files[2], { '.': '1.0.0' });
     write(files[1], {
-      name: 'layerforge-vst3', version: '0.1.0',
+      name: 'layerforge-vst3', version: '1.0.0',
       packages: { '': { name: 'layerforge-vst3', version: '0.2.0' } }
     });
     assert.notEqual(run().status, 0);
 
     write(files[1], {
-      name: 'wrong-name', version: '0.1.0',
-      packages: { '': { name: 'layerforge-vst3', version: '0.1.0' } }
+      name: 'wrong-name', version: '1.0.0',
+      packages: { '': { name: 'layerforge-vst3', version: '1.0.0' } }
     });
     const badName = run();
     assert.notEqual(badName.status, 0);
