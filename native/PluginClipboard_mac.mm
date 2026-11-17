@@ -301,6 +301,22 @@ bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function
     NSEvent *event = [[view window] currentEvent];
     if (view == nil || event == nil)
         return false;
+    NSLog(@"LayerForge transfer: drag event type=%ld buttons=%lu", (long)[event type],
+          (unsigned long)[NSEvent pressedMouseButtons]);
+    if ([event type] != NSEventTypeLeftMouseDown && [event type] != NSEventTypeLeftMouseDragged)
+    {
+        // The JS message arrives after the mouse event; AppKit needs a button-down drag event to start a session.
+        const auto windowPoint = [[view window] convertPointFromScreen:[NSEvent mouseLocation]];
+        event = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged
+                                   location:windowPoint
+                              modifierFlags:0
+                                  timestamp:[[NSProcessInfo processInfo] systemUptime]
+                               windowNumber:[[view window] windowNumber]
+                                    context:nil
+                                eventNumber:0
+                                 clickCount:1
+                                   pressure:1.0];
+    }
 
     NSString *path = [NSString stringWithUTF8String:file.getFullPathName().toRawUTF8()];
     NSURL *fileUrl = [NSURL fileURLWithPath:path];
