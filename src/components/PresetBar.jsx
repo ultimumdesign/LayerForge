@@ -6,9 +6,11 @@ export function PresetBar({
   libraryStatus,
   status,
   error,
+  isInitialPatch = true,
   busy,
   ready,
   onSelect,
+  onInitialize,
   onRefresh,
   onSave,
   onSaveAs,
@@ -16,7 +18,9 @@ export function PresetBar({
 }) {
   const selectedInfo = presets.find((preset) => preset.filename === selected);
   const canSave = ready && !busy;
-  const lcdStatus = status || (selectedInfo ? (selectedInfo.available ? 'LOADED' : 'MISSING') : 'INIT');
+  const isCurrentPatch = !selectedInfo && !isInitialPatch;
+  const lcdStatus = status || (selectedInfo ? (selectedInfo.available ? 'LOADED' : 'MISSING')
+    : libraryStatus || (isCurrentPatch ? 'EDITED' : 'INIT'));
   return (
     <div className="topbar-group preset-bar" role="group" aria-label="Presets">
       <div className="lcd preset-lcd">
@@ -24,12 +28,16 @@ export function PresetBar({
           <span className="lcd-label">PRESET</span>
           <select
             id="layerforge-preset-select"
-            value={selectedInfo ? selected : ''}
+            value={selectedInfo ? selected : isCurrentPatch ? '__current_patch__' : ''}
             disabled={!ready || busy}
-            onChange={(event) => onSelect(event.target.value)}
-            aria-label="Saved LayerForge presets. Selecting one loads it."
+            onChange={(event) => {
+              if (event.target.value === '') onInitialize();
+              else onSelect(event.target.value);
+            }}
+            aria-label="LayerForge presets. Loading another preset may ask for confirmation."
           >
-            <option value="">{libraryStatus || '-- INIT PATCH --'}</option>
+            {isCurrentPatch && <option value="__current_patch__" disabled>-- CURRENT PATCH --</option>}
+            <option value="">-- INIT PATCH --</option>
             {presets.map((preset) => (
               <option key={preset.filename} value={preset.filename}>
                 {preset.available ? preset.name : `UNAVAILABLE - ${preset.name}`}
@@ -46,7 +54,7 @@ export function PresetBar({
         SAVE
       </button>
       <button type="button" className="topbar-button" onClick={onSaveAs} disabled={!canSave}
-        title="Save the current patch and samples as a new preset">
+        title="Save the current patch and sample references as a new preset">
         SAVE AS
       </button>
       <button type="button" className="topbar-button topbar-icon-button" onClick={onRefresh}

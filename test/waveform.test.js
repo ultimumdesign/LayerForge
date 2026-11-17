@@ -25,7 +25,7 @@ import {
   getEnvelopeDisplayY,
   detectSilenceEnd,
   detectSilenceStart,
-  getDefaultSampleTrimEnd,
+  getDefaultSampleTrim,
   getLayerPreviewWaveform,
   getPhaseOffset,
   getLayerPlaybackInfo,
@@ -50,9 +50,50 @@ const sample = Float32Array.from(
 test('waveform viewer switches to the trace and shows source and output time axes', async () => {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
   try {
-    const { default: App, AboutDialog, BrandSignature, WavCopyButton, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const { default: App, AboutDialog, BrandSignature, WavCopyButton, hasPatchChanges, isInitialPatch, matchesReferencedSample, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const initialPatch = createDefaultState();
+    assert.equal(isInitialPatch(initialPatch), true);
+    assert.equal(isInitialPatch({ ...initialPatch, layers: initialPatch.layers.map((layer, index) =>
+      index === 0 ? { ...layer, pitch: 0.1 } : layer) }), false);
+    assert.equal(isInitialPatch({ ...initialPatch, layers: initialPatch.layers.map((layer, index) =>
+      index === 0 ? { ...layer, loaded: true, sampleKey: 'sample' } : layer) }), false);
+    assert.equal(isInitialPatch({ ...initialPatch, noise: { ...initialPatch.noise, gain: 0.3 } }), false);
+    const comparisonPatch = { ...initialPatch, layers: initialPatch.layers.map((layer, index) =>
+      index === 0 ? { ...layer, pitch: 5, loaded: true, sampleKey: 'left', sampleRightKey: 'right' } : layer) };
+    const baseline = serializePatchState(comparisonPatch);
+    assert.equal(hasPatchChanges(comparisonPatch, baseline), false);
+    assert.equal(hasPatchChanges({ ...comparisonPatch, layers: comparisonPatch.layers.map((layer, index) =>
+      index === 0 ? { ...layer, pitch: 5.1 } : layer) }, baseline), true);
+    assert.equal(hasPatchChanges({ ...comparisonPatch, layers: comparisonPatch.layers.map((layer, index) =>
+      index === 0 ? { ...layer, sampleRightKey: 'other' } : layer) }, baseline), true);
+    assert.equal(hasPatchChanges({ ...comparisonPatch, master: { ...comparisonPatch.master,
+      ceiling: Math.fround(comparisonPatch.master.ceiling) } }, baseline), false);
+    assert.equal(hasPatchChanges(comparisonPatch, null), true);
     const app = renderToStaticMarkup(React.createElement(App));
-    assert.match(app, /href="https:\/\/www\.instagram\.com\/ayatkomusic\/"[^>]*>made with love - ayatko<\/a>/);
+    assert.match(app, /data-theme="golden-nugget"/);
+    assert.match(app, /data-border-trace="normal" data-border-trace-speed="normal"/);
+    const appearanceWindow = globalThis.window;
+    try {
+      globalThis.window = {
+        localStorage: {
+          getItem: (key) => ({
+            'layerforge-ui-theme': 'cyan-volt',
+            'layerforge-border-trace-level': 'subtle',
+            'layerforge-border-trace-speed': 'fast'
+          })[key]
+        }
+      };
+      const restoredAppearance = renderToStaticMarkup(React.createElement(App));
+      assert.match(restoredAppearance, /data-theme="cyan-volt"/);
+      assert.match(restoredAppearance, /data-border-trace="subtle" data-border-trace-speed="fast"/);
+      globalThis.window.localStorage.getItem = () => 'invalid';
+      const invalidAppearance = renderToStaticMarkup(React.createElement(App));
+      assert.match(invalidAppearance, /data-theme="golden-nugget"/);
+      assert.match(invalidAppearance, /data-border-trace="normal" data-border-trace-speed="normal"/);
+    } finally {
+      globalThis.window = appearanceWindow;
+    }
+    assert.doesNotMatch(app, /made with love - ayatko/);
     assert.doesNotMatch(app, /MULTI-LAYER TRANSIENT &amp; CLIP ENGINE/);
     const order = ['noise', 'saturation', 'glue'];
     assert.deepEqual(reorderBusModules(order, 'noise', 'glue'), ['saturation', 'glue', 'noise']);
@@ -114,6 +155,20 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.match(presetBar({ selected: 'missing.lfpreset' }), />MISSING<\/output>/);
     assert.match(presetBar({ selected: 'absent.lfpreset' }), />INIT<\/output>/);
     assert.match(presetBar({ selected: 'kick.lfpreset', busy: true }), /disabled[^>]*>[\s\n]*SAVE/);
+    assert.match(presetBar({ selected: '', isInitialPatch: false, libraryStatus: 'NO SAVED PRESETS' }),
+      /value="__current_patch__" disabled="" selected="">-- CURRENT PATCH --/);
+    assert.match(presetBar({ selected: '', isInitialPatch: false, libraryStatus: 'NO SAVED PRESETS' }),
+      /value="">-- INIT PATCH --/);
+    const presetActions = [];
+    const presetSelect = PresetBar({
+      ...presetProps,
+      selected: 'kick.lfpreset',
+      onInitialize: () => presetActions.push('initialize'),
+      onSelect: (filename) => presetActions.push(filename)
+    }).props.children[0].props.children[0].props.children[1];
+    presetSelect.props.onChange({ target: { value: '' } });
+    presetSelect.props.onChange({ target: { value: 'kick.lfpreset' } });
+    assert.deepEqual(presetActions, ['initialize', 'kick.lfpreset']);
 
     const originalWindow = globalThis.window;
     try {
@@ -146,6 +201,22 @@ test('waveform viewer switches to the trace and shows source and output time axe
     } finally {
       globalThis.window = originalWindow;
     }
+    const automationBridge = new LayerForgeBridge();
+    const parameterChanges = [];
+    let restoredRevision;
+    automationBridge.onParameterChange = (id, value) => parameterChanges.push([id, value]);
+    automationBridge.onStateRestored = (revision) => { restoredRevision = revision; };
+    automationBridge.nativeParametersListener({ l0_pitch: 2 });
+    automationBridge.nativeParametersListener({ l0_pitch: 5, master_outputDb: -6 });
+    assert.deepEqual(parameterChanges, []);
+    automationBridge.resumeParameterUpdates();
+    assert.deepEqual(parameterChanges, [['l0_pitch', 5], ['master_outputDb', -6]]);
+    automationBridge.nativeStateRestoredListener({ revision: 3 });
+    automationBridge.nativeParametersListener({ l0_pitch: 8 });
+    assert.equal(restoredRevision, 3);
+    assert.equal(parameterChanges.length, 2);
+    automationBridge.resumeParameterUpdates();
+    assert.deepEqual(parameterChanges[2], ['l0_pitch', 8]);
     const bridge = new LayerForgeBridge();
     const nativeFile = new Promise((resolve, reject) => {
       bridge.pendingSampleFile = { requestId: 'sample-1', resolve, reject };
@@ -187,6 +258,17 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.deepEqual(registered[loaded.sampleKey], leftSample);
     assert.deepEqual(registered[loaded.sampleRightKey], rightSample);
     assert.equal(bridge.vfsBuffers[loaded.sampleRightKey], rightSample);
+    const audio = await bridge.decodeSampleFile({ arrayBuffer: async () => new ArrayBuffer(0) });
+    assert.equal(matchesReferencedSample(audio, loaded, bridge.vfsBuffers), true);
+    assert.equal(matchesReferencedSample(audio, { ...loaded, sampleRate: 48000 }, bridge.vfsBuffers), false);
+    assert.equal(matchesReferencedSample(audio, loaded, {
+      [loaded.sampleKey]: leftSample, [loaded.sampleRightKey]: Float32Array.of(0, 0.75, 0)
+    }), false);
+    assert.equal(matchesReferencedSample(audio, loaded, { [loaded.sampleKey]: leftSample }), false);
+    const monoAudio = { ...audio, numberOfChannels: 1 };
+    const monoLayer = { ...loaded, sampleRightKey: null };
+    assert.equal(matchesReferencedSample(monoAudio, monoLayer, bridge.vfsBuffers), true);
+    assert.equal(matchesReferencedSample(audio, monoLayer, bridge.vfsBuffers), false);
     const savedStereo = createDefaultState();
     Object.assign(savedStereo.layers[0], loaded, { loaded: true });
     const restoredStereo = restorePatchState(serializePatchState(savedStereo), bridge.vfsBuffers);
@@ -194,8 +276,8 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.throws(() => restorePatchState(serializePatchState(savedStereo), {
       [loaded.sampleKey]: leftSample
     }), /Stereo sample data.*missing/);
-    const paddedLeft = new Float32Array(1000);
-    const paddedRight = new Float32Array(1000);
+    const paddedLeft = new Float32Array(1000).fill(0.00001);
+    const paddedRight = new Float32Array(1000).fill(-0.00001);
     paddedLeft[99] = 0.5;
     paddedRight[199] = 0.25;
     bridge.audioCtx.decodeAudioData = async () => ({
@@ -203,7 +285,56 @@ test('waveform viewer switches to the trace and shows source and output time axe
       getChannelData: (index) => index ? paddedRight : paddedLeft
     });
     const padded = await bridge.loadSampleFile(0, { name: 'padded.wav', arrayBuffer: async () => new ArrayBuffer(0) });
+    assert.equal(padded.trimStart, 0.094);
     assert.equal(padded.trimEnd, 0.22);
+    assert.equal(bridge.vfsBuffers[padded.sampleKey][0], Math.fround(0.00001));
+    assert.equal(bridge.vfsBuffers[padded.sampleRightKey][999], Math.fround(-0.00001));
+    const referenceWindow = globalThis.window;
+    try {
+      globalThis.window = { __JUCE__: {}, _postMessageToPluginBackend: () => {}, confirm: () => true };
+      const referenceBridge = new LayerForgeBridge();
+      const hash = 'a'.repeat(64);
+      const referencePatch = createDefaultState();
+      Object.assign(referencePatch.layers[0], {
+        loaded: true, sampleKey: 'old-left', sampleRightKey: 'old-right'
+      });
+      const manifest = { version: 2, patch: referencePatch, samples: [{
+        key: 'old-left', sourceLocation: '/old/kick.wav', sourceName: 'kick.wav',
+        sha256: hash, sampleRate: 44100, sampleCount: 3
+      }] };
+      const requests = [];
+      referenceBridge.requestNativeState = async (type, payload) => {
+        requests.push({ type, payload });
+        return type === 'presetLoad' ? { referenceManifest: manifest } : { applied: true };
+      };
+      referenceBridge.readNativeSample = async () => { throw new Error('File moved'); };
+      referenceBridge.chooseNativeSample = async () => ({ path: '/new/kick.wav', sha256: hash });
+      referenceBridge.loadSampleFile = async () => ({
+        sampleRate: 44100, sampleCount: 3, sampleKey: 'new-left', sampleRightKey: 'new-right'
+      });
+      assert.deepEqual(await referenceBridge.loadNativePreset('kick.lfpreset', undefined, async () => true), { applied: true });
+      assert.deepEqual(requests[1].payload.samples, [{
+        layer: 0, path: '/new/kick.wav', sampleKey: 'new-left', sampleRightKey: 'new-right'
+      }]);
+      requests.length = 0;
+      referenceBridge.chooseNativeSample = async () => ({ path: '/wrong.wav', sha256: 'b'.repeat(64) });
+      await assert.rejects(referenceBridge.loadNativePreset('kick.lfpreset', undefined, async () => true), /does not match/);
+      assert.equal(requests.length, 1);
+      referenceBridge.chooseNativeSample = async () => null;
+      await assert.rejects(referenceBridge.loadNativePreset('kick.lfpreset', undefined, async () => true), /canceled/);
+      await assert.rejects(referenceBridge.loadNativePreset('kick.lfpreset', undefined, async () => false), /canceled/);
+      requests.length = 0;
+      referenceBridge.readNativeSample = async () => ({ path: '/old/kick.wav', sha256: hash });
+      await assert.rejects(referenceBridge.loadNativePreset('kick.lfpreset', () => false), /patch changed/);
+      assert.equal(requests.length, 1);
+      referenceBridge.loadSampleFile = async () => ({
+        sampleRate: 44100, sampleCount: 3, sampleKey: 'new-left', sampleRightKey: null
+      });
+      await assert.rejects(referenceBridge.loadNativePreset('kick.lfpreset'), /decoded differently/);
+      assert.equal(requests.length, 2);
+    } finally {
+      globalThis.window = referenceWindow;
+    }
     const changedLayer = { ...createDefaultState().layers[0], hp: 100, phaseOffset: 0.01 };
     const changedChannel = renderToStaticMarkup(React.createElement(ChannelStrip, {
       index: 0, layer: changedLayer, sampleBuffers: {}, sampleRates: {}, onChange: () => {}
@@ -280,6 +411,7 @@ test('waveform viewer switches to the trace and shows source and output time axe
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     assert.ok(about.includes(`Version ${version}`));
     assert.match(about, /href="https:\/\/github\.com\/ultimumdesign\/LayerForge"/);
+    assert.match(about, /href="https:\/\/www\.instagram\.com\/ayatkomusic\/"[^>]*>made with love - ayatko<\/a>.*CLOSE<\/button>/);
     assert.match(about, /role="dialog"/);
     const { HelpEnabledContext, HelpTip } = await server.ssrLoadModule('/src/components/HelpTip.jsx');
     const help = React.createElement(HelpTip, { text: 'Helpful text' }, 'CONTROL');
@@ -371,6 +503,14 @@ test('waveform viewer switches to the trace and shows source and output time axe
     }));
     assert.match(channel, /source time in milliseconds"[^>]*><span>SRC 200\.0 ms<\/span><span>500\.0 ms<\/span><span>800\.0 ms<\/span>/);
     assert.doesNotMatch(channel, /aria-label="CH 01 waveform horizontal scroll"/);
+    const renderTrim = (trimStart, trimEnd) => renderToStaticMarkup(React.createElement(WaveformViewer, {
+      title: 'CH 01', samples: new Float32Array(SAMPLE_RATE), sampleRate: SAMPLE_RATE,
+      trimStart, trimEnd, fitTrimmed: true, onTrimChange: () => {}
+    }));
+    const endHandle = renderTrim(0, 0.1).match(/waveform-trim-handle-end[^]*?<line x1="([^"]+)"/);
+    const startHandle = renderTrim(0.5, 1).match(/waveform-trim-handle-start[^]*?<line x1="([^"]+)"/);
+    assert.ok(endHandle && Number(endHandle[1]) < 495);
+    assert.ok(startHandle && Number(startHandle[1]) > 5);
     const zoomedChannel = renderToStaticMarkup(React.createElement(WaveformViewer, {
       title: 'CH 01', samples: new Float32Array(SAMPLE_RATE), sampleRate: SAMPLE_RATE,
       fitTrimmed: true, zoom: 2
@@ -438,8 +578,20 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.equal((detailedPath?.match(/L/g) || []).length, 8195);
 
     const { SumComparison } = await server.ssrLoadModule('/src/components/LayerSumViewer.jsx');
-    const { UI_THEMES } = await server.ssrLoadModule('/src/uiThemes.js');
+    const { UI_THEMES, getUiTheme } = await server.ssrLoadModule('/src/uiThemes.js');
     assert.ok(UI_THEMES.some((theme) => theme.id === 'golden-nugget'));
+    const highContrast = getUiTheme('high-contrast');
+    assert.equal(highContrast.id, 'high-contrast');
+    const luminance = (hex) => {
+      const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => parseInt(value, 16) / 255);
+      return channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+        .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    };
+    for (const foreground of [highContrast.text, highContrast.muted, highContrast.accent, highContrast.accentSecondary, highContrast.accentTertiary, ...highContrast.channelColors]) {
+      for (const background of [highContrast.background, highContrast.surface, highContrast.raised, highContrast.panel]) {
+        assert.ok((luminance(foreground) + 0.05) / (luminance(background) + 0.05) >= 4.5, `${foreground} on ${background}`);
+      }
+    }
     const waveform = { min: [-0.5], max: [0.5], transient: [0.5, -0.5] };
     const patch = createDefaultState();
     const comparison = { final: waveform, preMaster: waveform, layers: patch.layers.map(() => waveform), noise: waveform, sampleRate: 1000 };
@@ -762,25 +914,36 @@ test('stereo silence detection does not discard audio present only on the right'
   assert.ok(detectSilenceEnd(left, 0.01, right) > 0.75);
 });
 
-test('new sample trim removes only trailing digital silence and preserves stereo tails', () => {
-  const left = new Float32Array(1000);
-  const right = new Float32Array(1000);
-  left[99] = 0.5;
-  assert.equal(getDefaultSampleTrimEnd(left, 1000), 0.12);
-  right[199] = 0.000001;
-  const trimEnd = getDefaultSampleTrimEnd(left, 1000, right);
-  assert.equal(trimEnd, 0.22);
-  assert.equal(getSampleTrimRange(left.length, 0, trimEnd).endSample, 220);
-  right[999] = 0.00000001;
-  assert.equal(getDefaultSampleTrimEnd(left, 1000, right), 1);
-  assert.equal(getDefaultSampleTrimEnd(new Float32Array(1000), 1000), 1);
-  const longSample = new Float32Array(10000);
-  longSample[0] = 1;
-  assert.equal(getDefaultSampleTrimEnd(longSample, 1000), 0.01);
-  assert.equal(getSampleTrimRange(longSample.length, 0, getDefaultSampleTrimEnd(longSample, 1000)).endSample, 100);
-  const shortTail = new Float32Array(1000);
-  shortTail[994] = 0.5;
-  assert.equal(getDefaultSampleTrimEnd(shortTail, 1000), 1);
+test('default sample trim fits quiet leading and trailing noise without losing stereo transients', () => {
+  const left = new Float32Array(1000).fill(0.00001);
+  const right = new Float32Array(1000).fill(-0.00001);
+  left.fill(0.5, 200, 300);
+  right[400] = 0.1;
+  const trim = getDefaultSampleTrim(left, 1000, right);
+  assert.deepEqual(trim, { trimStart: 0.195, trimEnd: 0.421 });
+  const range = getSampleTrimRange(left.length, trim.trimStart, trim.trimEnd);
+  assert.equal(range.startOffset, 195);
+  assert.equal(range.endSample, 421);
+  assert.equal(left[0], Math.fround(0.00001));
+  assert.equal(right[400], Math.fround(0.1));
+  assert.deepEqual(getDefaultSampleTrim(new Float32Array(1000), 1000), { trimStart: 0, trimEnd: 1 });
+  const rightOnly = new Float32Array(1000);
+  rightOnly[2] = 0.25;
+  assert.deepEqual(getDefaultSampleTrim(new Float32Array(1000), 1000, rightOnly), {
+    trimStart: 0, trimEnd: 0.023
+  });
+  const quiet = new Float32Array(1000).fill(0.000000001);
+  quiet[500] = 0.000001;
+  assert.deepEqual(getDefaultSampleTrim(quiet, 1000), { trimStart: 0.495, trimEnd: 0.521 });
+  const quietTail = new Float32Array(1000).fill(0.00001);
+  quietTail[100] = 0.5;
+  quietTail[700] = 0.0006;
+  assert.deepEqual(getDefaultSampleTrim(quietTail, 1000), { trimStart: 0.095, trimEnd: 0.721 });
+  assert.deepEqual(getDefaultSampleTrim(Float32Array.of(0, 0.5, 0), 44100), { trimStart: 0, trimEnd: 1 });
+  const short = new Float32Array(10000);
+  short[9999] = 1;
+  const shortTrim = getDefaultSampleTrim(short, 1000);
+  assert.deepEqual(shortTrim, { trimStart: 0.99, trimEnd: 1 });
 });
 
 test('glue compression is stereo-linked and saturation offers a clean mix', async () => {
@@ -940,11 +1103,12 @@ test('sum display fit preserves silence and limits quiet-signal amplification', 
 test('trimmed channel preview fits the playable range with bounded context', () => {
   const shortRange = getTrimmedPreviewRange(0, 0.1);
   assert.equal(shortRange.start, 0);
-  assert.equal(shortRange.end, 0.1);
-  assert.deepEqual(getTrimmedPreviewRange(0.5, 1), { start: 0.5, end: 1 });
+  assert.ok(Math.abs(shortRange.end - 0.11) < 1e-12);
+  assert.deepEqual(getTrimmedPreviewRange(0.5, 1), { start: 0.45, end: 1 });
   assert.deepEqual(getTrimmedPreviewRange(0, 1), { start: 0, end: 1 });
   const nearEdge = getTrimmedPreviewRange(0.02, 0.5);
-  assert.ok(Math.abs((nearEdge.start + nearEdge.end) / 2 - 0.26) < 1e-12);
+  assert.equal(nearEdge.start, 0);
+  assert.ok(Math.abs(nearEdge.end - 0.548) < 1e-12);
 });
 
 test('source zoom stays centered on the fitted trim without changing the selection', () => {
@@ -954,8 +1118,8 @@ test('source zoom stays centered on the fitted trim without changing the selecti
   assert.ok(Math.abs(zoomed.end - 0.65) < 1e-12);
   assert.deepEqual(getZoomedPreviewRange({ start: 0, end: 1 }, 1), { start: 0, end: 1 });
   const nearStart = getZoomedPreviewRange(getTrimmedPreviewRange(0, 0.1), 2);
-  assert.ok(Math.abs(nearStart.start - 0.025) < 1e-12);
-  assert.ok(Math.abs(nearStart.end - 0.075) < 1e-12);
+  assert.ok(Math.abs(nearStart.start - 0.0275) < 1e-12);
+  assert.ok(Math.abs(nearStart.end - 0.0825) < 1e-12);
   assert.deepEqual(getZoomedPreviewRange({ start: 0.2, end: 0.8 }, 2, 0), { start: 0.2, end: 0.5 });
   const right = getZoomedPreviewRange({ start: 0.2, end: 0.8 }, 2, 1);
   assert.ok(Math.abs(right.start - 0.5) < 1e-12);

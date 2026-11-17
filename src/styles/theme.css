@@ -3480,7 +3480,12 @@ input {
   50% { opacity: 0; }
 }
 
-.brand-signature {
+.about-signature {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.about-dialog .brand-signature {
   color: var(--theme-accent-secondary);
   font: italic 13px "Snell Roundhand", "Apple Chancery", "Segoe Script", cursive;
   letter-spacing: 0.02em;
@@ -3488,13 +3493,13 @@ input {
   text-decoration: none;
 }
 
-.brand-signature:hover,
-.brand-signature:focus-visible {
+.about-dialog .brand-signature:hover,
+.about-dialog .brand-signature:focus-visible {
   color: var(--theme-accent-secondary);
   text-decoration: underline;
 }
 
-.brand-signature:focus-visible {
+.about-dialog .brand-signature:focus-visible {
   outline: 1px solid var(--theme-accent-secondary);
   outline-offset: 3px;
 }
@@ -3657,56 +3662,114 @@ input {
   text-shadow: 0 0 4px color-mix(in srgb, var(--theme-accent-tertiary) 60%, transparent);
 }
 
-.chassis[data-theme="golden-nugget"] {
+.chassis[data-theme] {
+  --border-trace-strength: 100%;
+  --border-trace-duration: 7s;
+  --trace-first: color-mix(in srgb, var(--trace-color-first, var(--theme-accent)) var(--border-trace-strength), var(--theme-border));
+  --trace-second: color-mix(in srgb, var(--trace-color-second, var(--theme-accent-secondary)) var(--border-trace-strength), var(--theme-border));
+  --trace-third: color-mix(in srgb, var(--trace-color-third, var(--theme-accent-tertiary)) var(--border-trace-strength), var(--theme-border));
+  --trace-fourth: color-mix(in srgb, var(--trace-color-fourth, var(--theme-accent-secondary)) var(--border-trace-strength), var(--theme-border));
+  --trace-panel-top: var(--theme-raised);
+  --trace-panel-bottom: var(--theme-surface);
   border: 1px solid transparent;
   background:
-    linear-gradient(155deg, #171820, #050507 48%, #0c0d12) padding-box,
-    linear-gradient(110deg, #ff3d77, #ffc15b, #5ff4ff, #ab72ff, #ff3d77) border-box;
+    linear-gradient(155deg, var(--theme-raised), var(--theme-background) 48%, var(--theme-surface)) padding-box,
+    linear-gradient(110deg, var(--trace-first), var(--trace-second), var(--trace-third), var(--trace-fourth), var(--trace-first)) border-box;
   background-size: 100% 100%, 300% 300%;
-  animation: golden-laser-trace 7s ease-in-out infinite alternate;
+  animation: theme-laser-trace var(--border-trace-duration) ease-in-out infinite alternate;
 }
 
-.chassis[data-theme="golden-nugget"] .strip,
-.chassis[data-theme="golden-nugget"] .output-stage,
-.chassis[data-theme="golden-nugget"] .rack-sum {
+.chassis[data-theme="golden-nugget"] {
+  --trace-color-first: #ff3d77;
+  --trace-color-second: #ffc15b;
+  --trace-color-third: #5ff4ff;
+  --trace-color-fourth: #ab72ff;
+  --trace-panel-top: #15151c;
+  --trace-panel-bottom: #08090d;
+}
+
+.chassis[data-border-trace="subtle"] {
+  --border-trace-strength: 35%;
+}
+
+.chassis[data-border-trace="off"] {
+  --border-trace-strength: 0%;
+}
+
+.chassis[data-border-trace-speed="slow"] {
+  --border-trace-duration: 14s;
+}
+
+.chassis[data-border-trace-speed="fast"] {
+  --border-trace-duration: 3.5s;
+}
+
+.chassis[data-theme] .strip,
+.chassis[data-theme] .output-stage,
+.chassis[data-theme] .rack-sum {
   border-color: transparent;
   background:
-    linear-gradient(145deg, #15151c, #08090d) padding-box,
-    linear-gradient(110deg, #ff3d77, #ffc15b, #5ff4ff, #ab72ff, #ff3d77) border-box;
+    linear-gradient(145deg, var(--trace-panel-top), var(--trace-panel-bottom)) padding-box,
+    linear-gradient(110deg, var(--trace-first), var(--trace-second), var(--trace-third), var(--trace-fourth), var(--trace-first)) border-box;
   background-size: 100% 100%, 300% 300%;
-  animation: golden-laser-trace 7s ease-in-out infinite alternate;
+  animation: theme-laser-trace var(--border-trace-duration) ease-in-out infinite alternate;
 }
 
-.chassis[data-theme="golden-nugget"] .strip-channel {
+.chassis[data-theme] .strip-channel {
   border-top-color: var(--channel-accent);
 }
 
-.chassis[data-theme="golden-nugget"] .strip-channel.is-empty {
+.chassis[data-theme] .strip-channel.is-empty {
   border-top-color: var(--theme-muted);
 }
 
-@keyframes golden-laser-trace {
+@keyframes theme-laser-trace {
   0% {
     background-position: 0 0, 0% 50%;
-    box-shadow: inset 0 1px #ffffff10, 0 0 5px #ff3d7740;
+    box-shadow: inset 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--trace-first) 25%, transparent);
   }
   50% {
     background-position: 0 0, 100% 50%;
-    box-shadow: inset 0 1px #ffffff10, 0 0 11px #5ff4ff60;
+    box-shadow: inset 0 1px #ffffff10, 0 0 11px color-mix(in srgb, var(--trace-third) 38%, transparent);
   }
   100% {
     background-position: 0 0, 0% 50%;
-    box-shadow: inset 0 1px #ffffff10, 0 0 5px #ab72ff40;
+    box-shadow: inset 0 1px #ffffff10, 0 0 5px color-mix(in srgb, var(--trace-fourth) 25%, transparent);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chassis[data-theme="golden-nugget"],
-  .chassis[data-theme="golden-nugget"] .strip,
-  .chassis[data-theme="golden-nugget"] .output-stage,
-  .chassis[data-theme="golden-nugget"] .rack-sum {
+  .chassis[data-theme],
+  .chassis[data-theme] .strip,
+  .chassis[data-theme] .output-stage,
+  .chassis[data-theme] .rack-sum {
     animation: none;
   }
+}
+
+.chassis[data-theme][data-border-trace="off"],
+.chassis[data-theme][data-border-trace="off"] .strip,
+.chassis[data-theme][data-border-trace="off"] .output-stage,
+.chassis[data-theme][data-border-trace="off"] .rack-sum,
+.chassis[data-theme="high-contrast"],
+.chassis[data-theme="high-contrast"] .strip,
+.chassis[data-theme="high-contrast"] .output-stage,
+.chassis[data-theme="high-contrast"] .rack-sum,
+.chassis[data-theme="high-contrast"] .brand-version i {
+  animation: none;
+}
+
+.chassis[data-theme="high-contrast"] :focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+}
+
+.chassis[data-theme="high-contrast"] .strip.is-muted {
+  opacity: 1;
+}
+
+.chassis[data-theme="high-contrast"] .mini-btn.active-mute {
+  color: #000000;
 }
 
 .knob-label,

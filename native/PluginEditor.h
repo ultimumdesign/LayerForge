@@ -36,18 +36,25 @@ private:
 
     void saveStagedWav(const std::string& key);
     void chooseSample(const juce::String& requestId, bool locationOnly);
+    void sendSampleFile(const juce::String& requestId, const juce::File& file);
     void exportPreset(const juce::String& payloadJson);
     void listPresets(const juce::String& requestId);
-    void loadPreset(const juce::String& requestId, const juce::String& filename);
+    void loadPreset(const juce::String& requestId, const juce::String& filename, std::uint64_t revision);
+    void applyReferencePreset(const juce::String& requestId, const juce::String& filename,
+                              std::uint64_t revision, const juce::Array<juce::var>& samples);
     void deletePreset(const juce::String& filename);
     void writePresetFile(const juce::File& destination,
                          const juce::String& stateJson,
-                         const std::vector<LayerForgeAudioProcessor::StoredSample>& samples);
+                         const std::vector<LayerForgeAudioProcessor::StoredSample>& samples,
+                         const juce::Array<juce::var>& references,
+                         const juce::String& requestId);
 
     LayerForgeAudioProcessor& audioProcessor;
     std::unique_ptr<juce::WebBrowserComponent> webView;
     int traceGeneration = 0;
     bool traceEnabled = false;
+    std::uint64_t lastStateRevision = 0;
+    std::vector<float> lastParameterValues;
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool fileChooserActive = false;
     std::unordered_map<std::string, PendingSampleTransfer> pendingSampleTransfers;

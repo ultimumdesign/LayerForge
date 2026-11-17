@@ -5,7 +5,7 @@ import { HelpEnabledContext } from './HelpTip.jsx';
 import { WaveformViewer } from './WaveformViewer.jsx';
 import { getLayerPreviewWaveform, getPhaseOffset, applyEnvelopeToWaveform, mergeStereoWaveform } from '../audio/waveform.js';
 import { createDefaultLayer, DEFAULT_ENVELOPE_POINTS, getSamplePhaseShift, getSampleTrimRange, isDefaultEnvelope } from '../../dsp/parameters.js';
-import { UI_THEMES } from '../uiThemes.js';
+import { getUiTheme } from '../uiThemes.js';
 
 const defaultLayer = createDefaultLayer('');
 
@@ -19,7 +19,7 @@ export function ChannelStrip({
   processedStatus,
   editorResolution,
   onEditorResolutionChange,
-  channelColors = UI_THEMES[0].channelColors,
+  channelColors = getUiTheme().channelColors,
   playbackId,
   onFileDrop,
   onNativeSampleBrowse,
@@ -31,7 +31,7 @@ export function ChannelStrip({
 }) {
   const helpEnabled = useContext(HelpEnabledContext);
   const fileInputRef = useRef(null);
-  const accent = channelColors[index] || UI_THEMES[0].accent;
+  const accent = channelColors[index] || getUiTheme().accent;
   const samples = layer.sampleKey ? sampleBuffers[layer.sampleKey] : null;
   const rightSamples = layer.sampleRightKey ? sampleBuffers[layer.sampleRightKey] : null;
   const sampleRate = sampleRates[layer.sampleKey] || layer.sampleRate || 44100;

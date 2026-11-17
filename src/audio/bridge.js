@@ -1,7 +1,7 @@
 import { Renderer as ElementaryRenderer } from '@elemaudio/core';
 import WebRenderer from '@elemaudio/web-renderer';
 import outputMonitorSource from './outputMonitorWorklet.js?raw';
-import { getDefaultSampleTrimEnd } from './waveform.js';
+import { getDefaultSampleTrim } from './waveform.js';
 
 function createNativeInstructionRemapper() {
   const mappedIds = new Map();
@@ -54,6 +54,11 @@ export class LayerForgeBridge {
     this.onMidiTrigger = null;
     this.onNativeMidiTrigger = null;
     this.onParameterChange = null;
+    this.onStateRestored = null;
+    this.stateRevision = 0;
+    this.parameterUpdates = {};
+    this.suspendParameterUpdates = true;
+    this.resumeOnRender = false;
     this.onMeter = null;
     this.onTrace = null;
     this.traceEnabled = false;
@@ -84,6 +89,7 @@ export class LayerForgeBridge {
           pending.bytes = new Uint8Array(details.size);
           pending.name = details.name;
           pending.path = details.path;
+          pending.sha256 = details.sha256;
           pending.received = 0;
         } catch (error) {
           this.pendingSampleFile = null;
@@ -105,7 +111,10 @@ export class LayerForgeBridge {
           pending.reject(new Error('Native sample file transfer ended before completion.'));
           return;
         }
-        pending.resolve({ name: pending.name, path: pending.path, arrayBuffer: async () => pending.bytes.buffer });
+        pending.resolve({
+          name: pending.name, path: pending.path, sha256: pending.sha256,
+          arrayBuffer: async () => pending.bytes.buffer
+        });
       } else if (details.action === 'location') {
         this.pendingSampleFile = null;
         if (!pending.locationOnly || typeof details.name !== 'string' || !details.name ||
@@ -176,6 +185,18 @@ export class LayerForgeBridge {
       this.pendingPluginState = null;
       this.pendingPluginStateRequestId = null;
       pending.reject(new Error(error || 'Could not load the selected preset.'));
+    };
+    this.nativePresetReferencesListener = ({ requestId, manifest }) => {
+      const pending = this.pendingPluginState;
+      if (!pending || requestId !== this.pendingPluginStateRequestId) return;
+      window.clearTimeout(pending.timeout);
+      this.pendingPluginState = null;
+      this.pendingPluginStateRequestId = null;
+      if (!manifest || manifest.version !== 2 || !Array.isArray(manifest.samples) || !manifest.patch) {
+        pending.reject(new Error('Invalid referenced preset manifest.'));
+      } else {
+        pending.resolve({ referenceManifest: manifest });
+      }
     };
     this.nativeSampleRestoreBuffers = new Map();
     this.nativeSampleRestoreListener = (details) => {
@@ -251,7 +272,7 @@ export class LayerForgeBridge {
         this.nativeSampleRestoreBuffers.delete(key);
       }
     };
-    this.nativePluginStateListener = ({ requestId, stateJson }) => {
+    this.nativePluginStateListener = ({ requestId, stateJson, revision }) => {
       if (requestId !== this.pendingPluginStateRequestId || !this.pendingPluginState) return;
 
       window.clearTimeout(this.pendingPluginState.timeout);
@@ -259,6 +280,8 @@ export class LayerForgeBridge {
       this.pendingPluginState = null;
       this.pendingPluginStateRequestId = null;
       try {
+        this.stateRevision = revision;
+        this.parameterUpdates = {};
         const state = stateJson ? JSON.parse(stateJson) : null;
         const missingSample = state?.layers?.find(
           (layer) => layer.loaded && (
@@ -283,15 +306,26 @@ export class LayerForgeBridge {
       this.onNativeMidiTrigger?.(event.detail?.count ?? 1);
     };
     this.nativeMeterListener = (data) => this.onMeter?.(data);
+    this.nativeParametersListener = (changes) => {
+      if (this.suspendParameterUpdates) Object.assign(this.parameterUpdates, changes);
+      else Object.entries(changes).forEach(([id, value]) => this.onParameterChange?.(id, value));
+    };
+    this.nativeStateRestoredListener = ({ revision }) => {
+      this.suspendParameterUpdates = true;
+      this.resumeOnRender = false;
+      this.parameterUpdates = {};
+      this.onStateRestored?.(revision);
+    };
     this.nativeTraceListener = (data) => {
       if (this.traceEnabled && data.generation === this.traceGeneration) this.onTrace?.(data);
     };
   }
 
-  async initialize({ onMidiTrigger, onNativeMidiTrigger, onParameterChange, onMeter, onTrace }) {
+  async initialize({ onMidiTrigger, onNativeMidiTrigger, onParameterChange, onStateRestored, onMeter, onTrace }) {
     this.onMidiTrigger = onMidiTrigger;
     this.onNativeMidiTrigger = onNativeMidiTrigger;
     this.onParameterChange = onParameterChange;
+    this.onStateRestored = onStateRestored;
     this.onMeter = onMeter;
     this.onTrace = onTrace;
 
@@ -341,6 +375,10 @@ export class LayerForgeBridge {
         this.nativePresetLoadFailureListener
       );
       window.__JUCE__.backend.addEventListener(
+        'layerforgePresetReferences',
+        this.nativePresetReferencesListener
+      );
+      window.__JUCE__.backend.addEventListener(
         'layerforgeSampleRestore',
         this.nativeSampleRestoreListener
       );
@@ -352,6 +390,8 @@ export class LayerForgeBridge {
       );
       window.__JUCE__.backend.addEventListener('layerforgeOutputMeter', this.nativeMeterListener);
       window.__JUCE__.backend.addEventListener('layerforgeOutputTrace', this.nativeTraceListener);
+      window.__JUCE__.backend.addEventListener('layerforgeParameters', this.nativeParametersListener);
+      window.__JUCE__.backend.addEventListener('layerforgeStateRestored', this.nativeStateRestoredListener);
       this.restoredPluginState = await this.requestNativePluginState();
       this.pluginStateLoaded = true;
     } else {
@@ -465,7 +505,7 @@ export class LayerForgeBridge {
     }
   }
 
-  async loadSampleFile(layerIdx, file) {
+  async decodeSampleFile(file) {
     const arrayBuffer = await file.arrayBuffer();
     const decodeCtx = this.audioCtx || new OfflineAudioContext(1, 44100, 44100);
     const audioBuffer = await decodeCtx.decodeAudioData(arrayBuffer);
@@ -473,6 +513,11 @@ export class LayerForgeBridge {
     if (audioBuffer.numberOfChannels > 2) {
       throw new Error('Only mono and stereo audio files are supported.');
     }
+    return audioBuffer;
+  }
+
+  async loadSampleFile(layerIdx, file) {
+    const audioBuffer = await this.decodeSampleFile(file);
 
     const vfsKey = `layer_${layerIdx}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const rightKey = audioBuffer.numberOfChannels === 2 ? `${vfsKey}:right` : null;
@@ -519,7 +564,7 @@ export class LayerForgeBridge {
       durationSec: audioBuffer.duration,
       sampleRate: audioBuffer.sampleRate,
       sampleCount: audioBuffer.length,
-      trimEnd: getDefaultSampleTrimEnd(resources[vfsKey], audioBuffer.sampleRate, rightKey ? resources[rightKey] : undefined)
+      ...getDefaultSampleTrim(resources[vfsKey], audioBuffer.sampleRate, rightKey ? resources[rightKey] : undefined)
     };
   }
 
@@ -534,6 +579,32 @@ export class LayerForgeBridge {
       try {
         window._postMessageToPluginBackend('chooseSample', { requestId, locationOnly });
       } catch (error) {
+        this.pendingSampleFile = null;
+        reject(error);
+      }
+    });
+  }
+
+  readNativeSample(path) {
+    if (!this.isNativePlugin || typeof window._postMessageToPluginBackend !== 'function') {
+      return Promise.reject(new Error('Native sample access is unavailable.'));
+    }
+    if (this.pendingSampleFile) return Promise.reject(new Error('A sample file request is already open.'));
+    const requestId = `sample-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.pendingSampleFile = null;
+        reject(new Error('Timed out while reading the referenced sample.'));
+      }, 60000);
+      this.pendingSampleFile = {
+        requestId,
+        resolve: (file) => { window.clearTimeout(timeout); resolve(file); },
+        reject: (error) => { window.clearTimeout(timeout); reject(error); }
+      };
+      try {
+        window._postMessageToPluginBackend('readSampleFile', { requestId, path });
+      } catch (error) {
+        window.clearTimeout(timeout);
         this.pendingSampleFile = null;
         reject(error);
       }
@@ -599,11 +670,59 @@ export class LayerForgeBridge {
     return result;
   }
 
-  loadNativePreset(filename) {
+  async loadNativePreset(filename, canApply = () => true, confirmRelink) {
     if (!this.isNativePlugin || typeof window._postMessageToPluginBackend !== 'function') {
-      return Promise.reject(new Error('Native preset loading is unavailable.'));
+      throw new Error('Native preset loading is unavailable.');
     }
-    return this.requestNativeState('presetLoad', { filename });
+    const revision = this.stateRevision;
+    const result = await this.requestNativeState('presetLoad', { filename, revision });
+    if (!result?.referenceManifest) return result;
+
+    const { patch, samples } = result.referenceManifest;
+    const resolved = [];
+    for (let index = 0; index < patch.layers.length; index += 1) {
+      const layer = patch.layers[index];
+      if (!layer.loaded) continue;
+      const reference = samples.find((sample) => sample.key === layer.sampleKey);
+      if (!reference || typeof reference.sourceLocation !== 'string' ||
+          !/^[0-9a-f]{64}$/.test(reference.sha256 || '')) {
+        throw new Error(`The sample reference for channel ${index + 1} is invalid.`);
+      }
+      let file = null;
+      try {
+        const candidate = await this.readNativeSample(reference.sourceLocation);
+        if (candidate.sha256 === reference.sha256) file = candidate;
+        else console.warn(`[LayerForge] Referenced sample for channel ${index + 1} has changed.`);
+      } catch (error) {
+        console.warn(`[LayerForge] Could not read the sample reference for channel ${index + 1}:`, error);
+      }
+      if (!file) {
+        if (typeof confirmRelink !== 'function') {
+          throw new Error('Sample relinking is unavailable.');
+        }
+        if (!await confirmRelink(`"${reference.sourceName || 'The original sample'}" for channel ${index + 1} is missing or changed. Locate the original file to load this preset.`)) {
+          throw new Error('Sample relinking canceled; the preset was not loaded.');
+        }
+        file = await this.chooseNativeSample();
+        if (!file) throw new Error('Sample relinking canceled; the preset was not loaded.');
+        if (file.sha256 !== reference.sha256) {
+          throw new Error(`The selected file does not match the original sample for channel ${index + 1}.`);
+        }
+      }
+      const loaded = await this.loadSampleFile(index, file);
+      if (loaded.sampleRate !== reference.sampleRate || loaded.sampleCount !== reference.sampleCount ||
+          Boolean(loaded.sampleRightKey) !== Boolean(layer.sampleRightKey)) {
+        throw new Error(`The referenced sample for channel ${index + 1} decoded differently.`);
+      }
+      resolved.push({
+        layer: index, path: file.path, sampleKey: loaded.sampleKey,
+        sampleRightKey: loaded.sampleRightKey
+      });
+    }
+    if (revision !== this.stateRevision || !canApply()) {
+      throw new Error('The patch changed while loading the preset. Try again.');
+    }
+    return this.requestNativeState('presetApplyReferences', { filename, revision, samples: resolved });
   }
 
   deleteNativePreset(filename) {
@@ -619,7 +738,22 @@ export class LayerForgeBridge {
     if (!this.isNativePlugin || typeof postMessage !== 'function') {
       throw new Error('Native patch-state storage is unavailable.');
     }
-    postMessage('pluginState', JSON.stringify(state));
+    if (this.suspendParameterUpdates) {
+      throw new Error('The host patch is still being restored.');
+    }
+    postMessage('pluginState', { stateJson: JSON.stringify(state), revision: this.stateRevision });
+  }
+
+  setHostParameter(id, value) {
+    if (this.isNativePlugin && this.pluginStateLoaded && !this.suspendParameterUpdates)
+      window._postMessageToPluginBackend('parameterChange', { id, value, revision: this.stateRevision });
+  }
+
+  resumeParameterUpdates() {
+    this.suspendParameterUpdates = false;
+    const updates = this.parameterUpdates;
+    this.parameterUpdates = {};
+    Object.entries(updates).forEach(([id, value]) => this.onParameterChange?.(id, value));
   }
 
   async prepareNativeWav(blob, filename) {

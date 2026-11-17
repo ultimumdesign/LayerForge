@@ -51,10 +51,12 @@ at its position in the bus order. Only modules *after* noise process it.
   Linear interpolation without anti-alias filtering can add high-frequency
   artifacts when pitching up bright, transient-rich material.
 - **Trim.** `IN` and `OUT` are stored as fractions of the file (minimum
-  selection 1 %). Playback starts at IN and stops at OUT. Newly loaded samples
-  default to an OUT after the last nonzero sample in either channel plus 20 ms
-  of padding, bounded by the file end and minimum selection. Completely silent
-  files retain their full range. The source file and restored trims are unchanged.
+  selection 1 %). Playback starts at IN and stops at OUT. On a new load, IN and
+  OUT surround samples above 0.1 % (−60 dB) of the peak absolute amplitude in
+  either channel, with up to 5 ms before and 20 ms after, bounded by the file
+  and minimum selection. Quieter material outside that range can be recovered
+  by extending the handles. Completely silent files retain their full range.
+  The source file and restored trims are unchanged.
 - **PLAY DLY.** A delay of 0–1000 ms applied after the envelope, via a
   384 000-sample delay line (8 s at 48 kHz).
 - **PHASE.** A signed alignment shift of up to ±5 % of the trimmed length. A

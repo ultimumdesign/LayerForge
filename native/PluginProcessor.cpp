@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "LayerForgeNativeGraph.h"
+#include "HostParameters.h"
 #include <elem/AudioBufferResource.h>
 #include <juce_javascript/juce_javascript.h>
 
@@ -54,6 +55,24 @@ std::unordered_set<std::string> getReferencedSampleKeys(const juce::String& json
 }
 }
 
+class LayerForgeAudioProcessor::HostParameter : public juce::AudioParameterFloat
+{
+public:
+    HostParameter(LayerForgeAudioProcessor& owner, const HostParameterSpec& definition)
+        : juce::AudioParameterFloat(juce::ParameterID(definition.id, 1), definition.name,
+              juce::NormalisableRange<float>(definition.min, definition.max), definition.initial,
+              juce::AudioParameterFloatAttributes().withLabel(definition.unit)),
+          processor(owner), spec(definition) {}
+
+    void valueChanged(float) override
+    {
+        processor.graphGeneration.fetch_add(1, std::memory_order_release);
+    }
+
+    LayerForgeAudioProcessor& processor;
+    const HostParameterSpec& spec;
+};
+
 class LayerForgeAudioProcessor::GraphWorker : public juce::Thread
 {
 public:
@@ -81,12 +100,17 @@ public:
             return;
         }
 
+        std::uint64_t appliedGeneration = std::numeric_limits<std::uint64_t>::max();
+        std::uint64_t rendererRuntime = std::numeric_limits<std::uint64_t>::max();
         while (!threadShouldExit()) {
-            wait(-1);
+            wait(20);
             if (threadShouldExit())
                 break;
 
             const auto generation = processor.graphGeneration.load(std::memory_order_acquire);
+            if (generation == appliedGeneration)
+                continue;
+            const auto runtimeGeneration = processor.runtimeGeneration.load(std::memory_order_acquire);
             juce::String patch;
             juce::DynamicObject::Ptr lengths(new juce::DynamicObject());
             {
@@ -97,9 +121,9 @@ public:
                                          static_cast<int>(sample.samples.size()));
             }
 
-            const auto state = patch.isEmpty() ? juce::var() : juce::JSON::parse(patch);
-            const juce::var args[] { state, juce::var(lengths.get()) };
-            const juce::var::NativeFunctionArgs callArgs(juce::var(), args, 2);
+            const auto state = processor.overlayParameters(patch.isEmpty() ? juce::var() : juce::JSON::parse(patch));
+            const juce::var args[] { state, juce::var(lengths.get()), runtimeGeneration != rendererRuntime };
+            const juce::var::NativeFunctionArgs callArgs(juce::var(), args, 3);
             juce::Result error = juce::Result::ok();
             const auto result = javascript.callFunction("buildLayerForgeGraph", callArgs, &error);
             if (error.failed() || !result.isString()) {
@@ -112,13 +136,20 @@ public:
                 continue;
             }
             const juce::ScopedLock lock(processor.graphWriteLock);
-            if (generation != processor.graphGeneration.load(std::memory_order_acquire)
-                || processor.runtime == nullptr)
+            if (runtimeGeneration != processor.runtimeGeneration.load(std::memory_order_acquire)
+                || processor.runtime == nullptr) {
+                rendererRuntime = std::numeric_limits<std::uint64_t>::max();
                 continue;
+            }
             const auto status = processor.runtime->applyInstructions(instructions.getArray());
-            if (status != elem::ReturnCode::Ok())
+            if (status != elem::ReturnCode::Ok()) {
                 juce::Logger::writeToLog("LayerForge: could not restore audio graph: "
                                          + juce::String(elem::ReturnCode::describe(status)));
+                rendererRuntime = std::numeric_limits<std::uint64_t>::max();
+            } else {
+                rendererRuntime = runtimeGeneration;
+                appliedGeneration = generation;
+            }
         }
     }
 
@@ -130,6 +161,11 @@ LayerForgeAudioProcessor::LayerForgeAudioProcessor()
     : AudioProcessor(BusesProperties()
           .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
+    for (const auto& spec : hostParameterSpecs) {
+        auto* parameter = new HostParameter(*this, spec);
+        hostParameters.push_back(parameter);
+        addParameter(parameter);
+    }
     graphWorker = std::make_unique<GraphWorker>(*this);
 }
 
@@ -167,6 +203,7 @@ void LayerForgeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
 {
     const juce::ScopedLock lock(graphWriteLock);
     runtime = std::make_unique<elem::Runtime<float>>(sampleRate, samplesPerBlock);
+    runtimeGeneration.fetch_add(1, std::memory_order_release);
     runtime->registerNodeType("layerforge-midi-gate", [](auto id, auto rate, auto size) {
         return std::make_shared<MidiSignalNode<0>>(id, rate, size);
     });
@@ -307,17 +344,8 @@ void LayerForgeAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     juce::String stateJson;
     std::vector<StoredSample> samples;
-    {
-        const juce::ScopedLock lock(patchStateLock);
-        stateJson = patchStateJson;
-        const auto referencedKeys = getReferencedSampleKeys(stateJson);
-        samples.reserve(storedSamples.size());
-        for (const auto& [key, sample] : storedSamples) {
-            if (referencedKeys.count(key) != 0)
-                samples.push_back({ key, sample.samples, sample.sampleRate });
-        }
-    }
-
+    std::uint64_t revision;
+    getPluginStateSnapshot(stateJson, samples, revision);
     juce::MemoryOutputStream output(destData, false);
     output.writeInt(patchStateMagic);
     output.writeInt(patchStateVersion);
@@ -375,6 +403,8 @@ void LayerForgeAudioProcessor::setStateInformation(const void* data, int sizeInB
         const juce::ScopedLock lock(patchStateLock);
         patchStateJson = loadedState;
         storedSamples = std::move(loadedSamples);
+        importPatchParameters(juce::JSON::parse(loadedState), false);
+        stateRevision.fetch_add(1, std::memory_order_release);
     }
 
     if (runtime != nullptr) {
@@ -390,20 +420,158 @@ void LayerForgeAudioProcessor::setStateInformation(const void* data, int sizeInB
     requestGraphRebuild();
 }
 
-bool LayerForgeAudioProcessor::setPatchStateJson(const juce::String& json)
+bool LayerForgeAudioProcessor::setPatchStateJson(const juce::String& json, bool importParameters,
+                                                  std::uint64_t expectedRevision)
 {
-    if (!juce::JSON::parse(json).isObject())
+    const auto patch = juce::JSON::parse(json);
+    if (!patch.isObject())
         return false;
 
-    const juce::ScopedLock lock(patchStateLock);
-    patchStateJson = json;
+    std::uint64_t revision;
+    {
+        const juce::ScopedLock lock(patchStateLock);
+        revision = stateRevision.load(std::memory_order_relaxed);
+        if (expectedRevision != std::numeric_limits<std::uint64_t>::max() && expectedRevision != revision)
+            return false;
+        patchStateJson = json;
+    }
+    if (importParameters)
+        importPatchParameters(patch, true, revision);
+    requestGraphRebuild();
     return true;
 }
 
 juce::String LayerForgeAudioProcessor::getPatchStateJson() const
 {
+    juce::String json;
+    {
+        const juce::ScopedLock lock(patchStateLock);
+        json = patchStateJson;
+    }
+    return juce::JSON::toString(overlayParameters(json.isEmpty() ? juce::var() : juce::JSON::parse(json)));
+}
+
+void LayerForgeAudioProcessor::getPluginStateSnapshot(juce::String& json,
+                                                       std::vector<StoredSample>& samples,
+                                                       std::uint64_t& revision) const
+{
     const juce::ScopedLock lock(patchStateLock);
-    return patchStateJson;
+    revision = stateRevision.load(std::memory_order_relaxed);
+    json = juce::JSON::toString(overlayParameters(
+        patchStateJson.isEmpty() ? juce::var() : juce::JSON::parse(patchStateJson)));
+    samples.clear();
+    const auto referenced = getReferencedSampleKeys(patchStateJson);
+    for (const auto& [key, sample] : storedSamples)
+        if (referenced.count(key) != 0)
+            samples.push_back(sample);
+}
+
+namespace
+{
+juce::DynamicObject* parameterSection(juce::var& patch, const HostParameterSpec& spec)
+{
+    auto* root = patch.getDynamicObject();
+    const juce::String id(spec.id);
+    if (id.startsWithChar('l')) {
+        auto layers = root->getProperty("layers");
+        if (!layers.isArray())
+            layers = juce::Array<juce::var>();
+        auto* array = layers.getArray();
+        const int index = id.substring(1, id.indexOfChar('_')).getIntValue();
+        while (array->size() <= index) {
+            juce::DynamicObject::Ptr layer(new juce::DynamicObject());
+            juce::DynamicObject::Ptr start(new juce::DynamicObject()), end(new juce::DynamicObject());
+            start->setProperty("time", 0);
+            start->setProperty("value", 1);
+            end->setProperty("time", 1);
+            end->setProperty("value", 1);
+            layer->setProperty("envelopePoints", juce::var(juce::Array<juce::var> { start.get(), end.get() }));
+            array->add(juce::var(layer.get()));
+        }
+        if (!(*array)[index].isObject())
+            array->set(index, juce::var(new juce::DynamicObject()));
+        root->setProperty("layers", layers);
+        return (*array)[index].getDynamicObject();
+    }
+    const auto section = id.upToFirstOccurrenceOf("_", false, false);
+    auto value = root->getProperty(section);
+    if (!value.isObject()) {
+        value = juce::var(new juce::DynamicObject());
+        root->setProperty(section, value);
+    }
+    return value.getDynamicObject();
+}
+}
+
+juce::var LayerForgeAudioProcessor::overlayParameters(juce::var patch) const
+{
+    if (!patch.isObject())
+        patch = juce::var(new juce::DynamicObject());
+    if (!patch.getProperty("noise", {}).isObject()) {
+        juce::DynamicObject::Ptr noise(new juce::DynamicObject());
+        noise->setProperty("enabled", false);
+        patch.getDynamicObject()->setProperty("noise", noise.get());
+    }
+    for (const auto* parameter : hostParameters) {
+        const juce::String id(parameter->spec.id);
+        parameterSection(patch, parameter->spec)->setProperty(
+            id.fromFirstOccurrenceOf("_", false, false), static_cast<double>(parameter->get()));
+    }
+    return patch;
+}
+
+void LayerForgeAudioProcessor::importPatchParameters(const juce::var& input, bool notifyHost,
+                                                      std::uint64_t revision)
+{
+    // Work on a private copy because filling missing sections must not alter the stored patch.
+    auto patch = juce::JSON::parse(juce::JSON::toString(input));
+    for (auto* parameter : hostParameters) {
+        const juce::String id(parameter->spec.id);
+        const auto key = id.fromFirstOccurrenceOf("_", false, false);
+        auto value = parameterSection(patch, parameter->spec)->getProperty(key);
+        if (value.isVoid() && (id == "master_saturationDrive" || id == "master_saturationMix"))
+            value = patch.getProperty("noise", {}).getProperty(key, {});
+        const double number = (value.isDouble() || value.isInt() || value.isInt64())
+            ? static_cast<double>(value) : parameter->spec.initial;
+        const auto plain = std::isfinite(number) ? static_cast<float>(number) : parameter->spec.initial;
+        const auto normalized = parameter->convertTo0to1(juce::jlimit(parameter->spec.min, parameter->spec.max, plain));
+        if (static_cast<juce::AudioProcessorParameter*>(parameter)->getValue() == normalized)
+            continue;
+        if (notifyHost) {
+            setParameterFromEditor(id, plain, revision);
+        } else {
+            static_cast<juce::AudioProcessorParameter*>(parameter)->setValue(normalized);
+        }
+    }
+}
+
+void LayerForgeAudioProcessor::setParameterFromEditor(const juce::String& id, float value,
+                                                       std::uint64_t expectedRevision)
+{
+    if (!std::isfinite(value))
+        return;
+    for (auto* parameter : hostParameters) {
+        if (id != parameter->spec.id)
+            continue;
+        const auto normalized = parameter->convertTo0to1(juce::jlimit(parameter->spec.min, parameter->spec.max, value));
+        if (static_cast<juce::AudioProcessorParameter*>(parameter)->getValue() == normalized)
+            return;
+        parameter->beginChangeGesture();
+        bool applied = false;
+        {
+            const juce::ScopedLock lock(patchStateLock);
+            if (expectedRevision == std::numeric_limits<std::uint64_t>::max()
+                || expectedRevision == stateRevision.load(std::memory_order_relaxed)) {
+                static_cast<juce::AudioProcessorParameter*>(parameter)->setValue(normalized);
+                applied = true;
+            }
+        }
+        if (applied)
+            parameter->sendValueChangedMessageToListeners(
+                static_cast<juce::AudioProcessorParameter*>(parameter)->getValue());
+        parameter->endChangeGesture();
+        return;
+    }
 }
 
 void LayerForgeAudioProcessor::storeSampleResource(std::string key,
@@ -423,21 +591,24 @@ void LayerForgeAudioProcessor::storeSampleResource(std::string key,
         ? std::string()
         : key.substr(0, secondSeparator + 1);
 
-    const juce::ScopedLock lock(patchStateLock);
-    const auto referencedKeys = getReferencedSampleKeys(patchStateJson);
-    if (!layerPrefix.empty()) {
-        for (auto it = storedSamples.begin(); it != storedSamples.end();) {
-            const auto isStereoPartner = it->first == key + ":right" || key == it->first + ":right";
-            if (it->first.compare(0, layerPrefix.size(), layerPrefix) == 0
-                && !isStereoPartner
-                && referencedKeys.count(it->first) == 0)
-                it = storedSamples.erase(it);
-            else
-                ++it;
+    {
+        const juce::ScopedLock lock(patchStateLock);
+        const auto referencedKeys = getReferencedSampleKeys(patchStateJson);
+        if (!layerPrefix.empty()) {
+            for (auto it = storedSamples.begin(); it != storedSamples.end();) {
+                const auto isStereoPartner = it->first == key + ":right" || key == it->first + ":right";
+                if (it->first.compare(0, layerPrefix.size(), layerPrefix) == 0
+                    && !isStereoPartner
+                    && referencedKeys.count(it->first) == 0)
+                    it = storedSamples.erase(it);
+                else
+                    ++it;
+            }
         }
+        auto sample = StoredSample { key, std::move(samples), sampleRate };
+        storedSamples.insert_or_assign(std::move(key), std::move(sample));
     }
-    auto sample = StoredSample { key, std::move(samples), sampleRate };
-    storedSamples.insert_or_assign(std::move(key), std::move(sample));
+    requestGraphRebuild();
 }
 
 std::vector<LayerForgeAudioProcessor::StoredSample> LayerForgeAudioProcessor::getStoredSamples() const

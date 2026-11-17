@@ -2,18 +2,21 @@ import { Renderer } from '@elemaudio/core';
 import { buildDrumGraph } from '../../dsp/engine.js';
 import { restorePatchState } from '../../dsp/parameters.js';
 
-globalThis.buildLayerForgeGraph = (patch, sampleLengths) => {
+let renderer;
+let instructions;
+let ids;
+globalThis.buildLayerForgeGraph = (patch, sampleLengths, reset) => {
+  if (!renderer || reset) {
+    ids = new Map();
+    renderer = new Renderer((batch) => { instructions = batch; });
+  }
   const buffers = Object.fromEntries(
     Object.entries(sampleLengths).map(([key, length]) => [key, { length }])
   );
   const state = restorePatchState(patch, buffers);
-  let instructions;
-  const renderer = new Renderer((batch) => {
-    instructions = batch;
-  });
+  instructions = [];
   renderer.render(...buildDrumGraph(state, true, true));
 
-  const ids = new Map();
   const mapId = (id) => {
     if (!ids.has(id)) ids.set(id, -1 - ids.size);
     return ids.get(id);

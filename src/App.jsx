@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   createDefaultState,
+  PARAMETER_SCHEMA,
   resetBusModuleKnobs,
   resetLayerKnobs,
   restorePatchState,
@@ -25,11 +26,51 @@ import { HelpEnabledContext } from './components/HelpTip.jsx';
 import { PresetBar } from './components/PresetBar.jsx';
 import { SystemMenu } from './components/SystemMenu.jsx';
 import { INSTAGRAM_URL } from './links.js';
-import { getUiTheme, UI_THEMES } from './uiThemes.js';
+import { BORDER_TRACE_LEVELS, BORDER_TRACE_SPEEDS, getBorderTraceSettings, getUiTheme, UI_THEMES } from './uiThemes.js';
 import { version } from '../package.json';
 
 const EMPTY_SAMPLE_MAP = Object.freeze({});
 const BUS_MODULE_LABELS = { noise: 'Noise synth', saturation: 'Saturation', glue: 'Glue compressor' };
+const INITIAL_PATCH_JSON = JSON.stringify(serializePatchState(createDefaultState()));
+// JUCE round-trips host parameters through normalized 32-bit floats.
+const PARAMETER_TOLERANCES = new Map(PARAMETER_SCHEMA.map(({ id, min, max }) => {
+  const layer = id.match(/^l(\d+)_(.+)$/);
+  const path = layer ? `layers.${layer[1]}.${layer[2]}` : id.replace('_', '.');
+  return [path, (max - min) * 2e-7];
+}));
+
+export function isInitialPatch(state) {
+  return !hasPatchChanges(state, JSON.parse(INITIAL_PATCH_JSON));
+}
+
+export function hasPatchChanges(state, baseline) {
+  if (!baseline || typeof baseline !== 'object') return true;
+  const same = (left, right, path = '') => {
+    if (typeof left === 'number' && typeof right === 'number') {
+      return Number.isFinite(left) && Number.isFinite(right) &&
+        Math.abs(left - right) <= (PARAMETER_TOLERANCES.get(path) || 0);
+    }
+    if (left === right) return true;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object' ||
+        Array.isArray(left) !== Array.isArray(right)) return false;
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length &&
+      keys.every((key) => Object.hasOwn(right, key) &&
+        same(left[key], right[key], path ? `${path}.${key}` : key));
+  };
+  return !same(serializePatchState(state), baseline);
+}
+
+export function matchesReferencedSample(audio, layer, buffers) {
+  const left = buffers[layer.sampleKey];
+  const right = layer.sampleRightKey ? buffers[layer.sampleRightKey] : null;
+  if (!left || (layer.sampleRightKey && !right) || audio.numberOfChannels !== (right ? 2 : 1) ||
+      audio.sampleRate !== layer.sampleRate || audio.length !== layer.sampleCount ||
+      left.length !== audio.length || (right && right.length !== audio.length)) return false;
+  const channels = [audio.getChannelData(0), right ? audio.getChannelData(1) : null];
+  return [left, right].every((samples, channel) =>
+    !samples || samples.every((value, index) => value === channels[channel][index]));
+}
 
 export function reorderBusModules(order, source, target) {
   const from = order.indexOf(source);
@@ -72,17 +113,29 @@ export function observeNativeEditorHeight(element, notify) {
 }
 
 function getStoredThemeId() {
-  if (typeof window === 'undefined') return UI_THEMES[0].id;
-  if (window.__JUCE__) return UI_THEMES[0].id;
+  if (typeof window === 'undefined' || window.__JUCE__) return getUiTheme().id;
   try {
     return getUiTheme(window.localStorage.getItem('layerforge-ui-theme')).id;
   } catch (error) {
     console.error('[LayerForge] Could not restore the UI color theme:', error);
-    return UI_THEMES[0].id;
+    return getUiTheme().id;
   }
 }
 
-export function AboutDialog({ onClose }) {
+function getStoredBorderTrace() {
+  if (typeof window === 'undefined' || window.__JUCE__) return getBorderTraceSettings();
+  try {
+    return getBorderTraceSettings({
+      level: window.localStorage.getItem('layerforge-border-trace-level'),
+      speed: window.localStorage.getItem('layerforge-border-trace-speed')
+    });
+  } catch (error) {
+    console.error('[LayerForge] Could not restore border tracing settings:', error);
+    return getBorderTraceSettings();
+  }
+}
+
+export function AboutDialog({ onClose, isNativePlugin }) {
   return (
     <div className="modal-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
@@ -93,6 +146,9 @@ export function AboutDialog({ onClose }) {
         <p>Multi-layer drum designer and clip engine.</p>
         <p>Repository: <a href="https://github.com/ultimumdesign/LayerForge" target="_blank" rel="noreferrer">github.com/ultimumdesign/LayerForge</a></p>
         <p>Licensed under GPL-3.0-or-later.</p>
+        <div className="about-signature">
+          <BrandSignature isNativePlugin={isNativePlugin} />
+        </div>
         <div className="storage-dialog-actions">
           <button type="button" className="btn-export" onClick={onClose} autoFocus>CLOSE</button>
         </div>
@@ -183,10 +239,16 @@ export default function App() {
   const busGripRefs = useRef({});
   const chassisRef = useRef(null);
   const presetLoadingRef = useRef(false);
+  const pendingPresetSaveRef = useRef(null);
+  const sampleRelinkResolveRef = useRef(null);
   const patchGenerationRef = useRef(0);
   const sumRenderQueueRef = useRef({ active: false, pending: null, timer: null });
   const [themeId, setThemeId] = useState(getStoredThemeId);
+  const [borderTrace, setBorderTrace] = useState(getStoredBorderTrace);
   const [state, setState] = useState(() => createDefaultState());
+  const [patchBaseline, setPatchBaseline] = useState(() => serializePatchState(createDefaultState()));
+  const patchBaselineRef = useRef(patchBaseline);
+  patchBaselineRef.current = patchBaseline;
   const [triggered, setTriggered] = useState(false);
   const [playbackId, setPlaybackId] = useState(0);
   const [diagnostics, setDiagnostics] = useState(getDiagnostics);
@@ -215,22 +277,34 @@ export default function App() {
   const [presetName, setPresetName] = useState('LayerForge Preset');
   const [savedPresets, setSavedPresets] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState('');
+  const [presetToLoad, setPresetToLoad] = useState(null);
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetToOverwrite, setPresetToOverwrite] = useState(null);
   const [presetLibraryStatus, setPresetLibraryStatus] = useState('PRESETS LOADING');
   const [presetError, setPresetError] = useState('');
+  const [sampleRelinkMessage, setSampleRelinkMessage] = useState('');
   const [pluginStateLoaded, setPluginStateLoaded] = useState(false);
   const theme = getUiTheme(themeId);
+  const initialPatch = isInitialPatch(state);
+  const patchChanged = hasPatchChanges(state, patchBaseline);
   const isNativePlugin = typeof window !== 'undefined' && Boolean(window.__JUCE__);
   const patchStateJson = JSON.stringify({ ...serializePatchState(state), uiTheme: themeId });
   const patchStateRef = useRef(patchStateJson);
   patchStateRef.current = patchStateJson;
   const selectedPresetRef = useRef('');
   selectedPresetRef.current = selectedPreset;
+  const borderTraceRef = useRef(borderTrace);
+  borderTraceRef.current = borderTrace;
+  const updatePatchBaseline = useCallback((baseline) => {
+    patchBaselineRef.current = baseline;
+    setPatchBaseline(baseline);
+  }, []);
   // The loaded preset name rides along with the host-saved state so it survives editor closes.
   const snapshotPatchState = () => ({
     ...JSON.parse(patchStateRef.current),
-    loadedPreset: selectedPresetRef.current
+    uiBorderTrace: borderTraceRef.current,
+    loadedPreset: selectedPresetRef.current,
+    savedPatchBaseline: patchBaselineRef.current
   });
 
   const refreshPresetLibrary = useCallback(async () => {
@@ -248,6 +322,15 @@ export default function App() {
   }, []);
 
   useEffect(() => subscribeDiagnostics(setDiagnostics), []);
+
+  useEffect(() => () => {
+    sampleRelinkResolveRef.current?.(false);
+    sampleRelinkResolveRef.current = null;
+    if (pendingPresetSaveRef.current) {
+      window.clearTimeout(pendingPresetSaveRef.current.timeout);
+      pendingPresetSaveRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if ((moduleSettings === 'noise' && !state.noise.enabled) ||
@@ -276,6 +359,16 @@ export default function App() {
       console.error('[LayerForge] Could not save the UI color theme:', error);
     }
   }, [isNativePlugin, themeId]);
+
+  useEffect(() => {
+    if (isNativePlugin) return;
+    try {
+      window.localStorage.setItem('layerforge-border-trace-level', borderTrace.level);
+      window.localStorage.setItem('layerforge-border-trace-speed', borderTrace.speed);
+    } catch (error) {
+      console.error('[LayerForge] Could not save border tracing settings:', error);
+    }
+  }, [isNativePlugin, borderTrace]);
 
   useEffect(() => {
     if (!showAbout) return undefined;
@@ -315,7 +408,10 @@ export default function App() {
 
   useEffect(() => {
     const onPresetStatus = (event) => {
-      const { status, error, path } = event.detail || {};
+      const { status, error, path, requestId } = event.detail || {};
+      const pending = pendingPresetSaveRef.current;
+      if ((status === 'saved' || status === 'failed') && (!pending || requestId !== pending.requestId)) return;
+      if (status === 'saved' || status === 'failed') window.clearTimeout(pending.timeout);
       if (error) console.error('[LayerForge] Preset operation failed:', error);
       const labels = {
         saved: 'PRESET SAVED',
@@ -327,6 +423,10 @@ export default function App() {
       setPresetStatus(labels[status] || '');
       setPresetError(error || '');
       if (status === 'saved') {
+        if (pendingPresetSaveRef.current) {
+          updatePatchBaseline(pendingPresetSaveRef.current.patch);
+          pendingPresetSaveRef.current = null;
+        }
         setSelectedPreset(path || '');
         setShowPresetWarning(false);
         setPresetToOverwrite(null);
@@ -334,12 +434,14 @@ export default function App() {
       } else if (status === 'deleted') {
         setSelectedPreset('');
         refreshPresetLibrary();
+      } else if (status === 'failed') {
+        pendingPresetSaveRef.current = null;
       }
     };
 
     window.addEventListener('layerforge:presetStatus', onPresetStatus);
     return () => window.removeEventListener('layerforge:presetStatus', onPresetStatus);
-  }, [refreshPresetLibrary]);
+  }, [refreshPresetLibrary, updatePatchBaseline]);
 
   const triggerHit = useCallback(async (velocity = 1.0) => {
     if (bridgeRef.current) {
@@ -362,6 +464,8 @@ export default function App() {
   useEffect(() => {
     const bridge = new LayerForgeBridge();
     let active = true;
+    let restoring = false;
+    let requestedRevision = 0;
     bridgeRef.current = bridge;
 
     const initialization = bridge.initialize({
@@ -374,6 +478,42 @@ export default function App() {
       },
       onTrace: (data) => {
         if (active) window.dispatchEvent(new CustomEvent('layerforge:outputTrace', { detail: data }));
+      },
+      onStateRestored: async (revision) => {
+        requestedRevision = Math.max(requestedRevision, revision);
+        patchGenerationRef.current += 1;
+        if (pendingPresetSaveRef.current) {
+          window.clearTimeout(pendingPresetSaveRef.current.timeout);
+          setPresetStatus('PRESET SAVE UNCONFIRMED');
+          setPresetError('The host project changed during saving. Check the preset library before trying again.');
+        }
+        pendingPresetSaveRef.current = null;
+        if (restoring) return;
+        restoring = true;
+        try {
+          let patch;
+          do {
+            while (active && bridge.pendingPluginState)
+              await new Promise((resolve) => window.setTimeout(resolve, 20));
+            if (!active) return;
+            patch = await bridge.requestNativePluginState();
+          } while (active && bridge.stateRevision < requestedRevision);
+          if (!active) return;
+          bridge.resumeOnRender = true;
+          setState(restorePatchState(patch, bridge.vfsBuffers));
+          setThemeId(getUiTheme(patch?.uiTheme).id);
+          setBorderTrace(getBorderTraceSettings(patch?.uiBorderTrace));
+          setSelectedPreset(typeof patch?.loadedPreset === 'string' ? patch.loadedPreset : '');
+          updatePatchBaseline(patch?.savedPatchBaseline ??
+            (patch?.loadedPreset ? null : JSON.parse(INITIAL_PATCH_JSON)));
+          setPresetToLoad(null);
+          setTrace(null);
+          setPreparedWav(null);
+        } catch (error) {
+          console.error('[LayerForge] Could not restore host state:', error);
+        } finally {
+          restoring = false;
+        }
       },
       onParameterChange: (paramId, value) => {
         if (!active) return;
@@ -399,9 +539,13 @@ export default function App() {
     });
     initialization.then(async () => {
       if (!active) return;
+      if (!restoring) bridge.resumeOnRender = true;
       setState(restorePatchState(bridge.restoredPluginState, bridge.vfsBuffers));
       if (bridge.isNativePlugin) {
+        updatePatchBaseline(bridge.restoredPluginState?.savedPatchBaseline ??
+          (bridge.restoredPluginState?.loadedPreset ? null : JSON.parse(INITIAL_PATCH_JSON)));
         setThemeId(getUiTheme(bridge.restoredPluginState?.uiTheme).id);
+        setBorderTrace(getBorderTraceSettings(bridge.restoredPluginState?.uiBorderTrace));
         const loadedPreset = bridge.restoredPluginState?.loadedPreset;
         if (typeof loadedPreset === 'string') setSelectedPreset(loadedPreset);
       }
@@ -422,24 +566,30 @@ export default function App() {
         });
       }
     };
-  }, [refreshPresetLibrary, triggerHit]);
+  }, [refreshPresetLibrary, triggerHit, updatePatchBaseline]);
+
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (pluginStateLoaded && bridge?.resumeOnRender) {
+      bridge.resumeOnRender = false;
+      bridge.resumeParameterUpdates();
+    }
+  }, [state, pluginStateLoaded]);
 
   useEffect(() => {
     if (!isNativePlugin || !pluginStateLoaded) return;
-    const timer = window.setTimeout(() => {
-      if (presetLoadingRef.current) return;
-      try {
-        bridgeRef.current?.saveNativePluginState(snapshotPatchState());
-      } catch (error) {
-        console.error('[LayerForge] Could not save the patch state:', error);
-      }
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [isNativePlugin, patchStateJson, selectedPreset, pluginStateLoaded]);
+    if (presetLoadingRef.current || bridgeRef.current?.suspendParameterUpdates) return;
+    try {
+      bridgeRef.current?.saveNativePluginState(snapshotPatchState());
+    } catch (error) {
+      console.error('[LayerForge] Could not save the patch state:', error);
+    }
+  }, [isNativePlugin, patchStateJson, selectedPreset, pluginStateLoaded, borderTrace, patchBaseline]);
 
   useEffect(() => {
     const flushPatchState = () => {
-      if (!isNativePlugin || !pluginStateLoaded || presetLoadingRef.current) return;
+      if (!isNativePlugin || !pluginStateLoaded || presetLoadingRef.current ||
+          bridgeRef.current?.suspendParameterUpdates) return;
       try {
         bridgeRef.current?.saveNativePluginState(snapshotPatchState());
       } catch (error) {
@@ -455,8 +605,7 @@ export default function App() {
 
   // Re-evaluate Elementary DSP graph on state updates
   useEffect(() => {
-    if (!bridgeRef.current) return;
-    if (bridgeRef.current.isNativePlugin && !bridgeRef.current.pluginStateLoaded) return;
+    if (!bridgeRef.current || bridgeRef.current.isNativePlugin) return;
     const renderResult = bridgeRef.current.render(...buildDrumGraph(state, true, bridgeRef.current.isNativePlugin));
     renderResult?.catch((error) => {
       console.error('[LayerForge] Audio graph render failed:', error);
@@ -588,10 +737,30 @@ export default function App() {
   }, [triggerHit]);
 
   const updateLayer = (idx, patch) => {
+    for (const [key, value] of Object.entries(patch))
+      if (PARAMETER_SCHEMA.some((parameter) => parameter.id === `l${idx}_${key}`))
+        bridgeRef.current?.setHostParameter(`l${idx}_${key}`, value);
     setState((s) => ({
       ...s,
       layers: s.layers.map((l, i) => (i === idx ? { ...l, ...patch } : l))
     }));
+  };
+
+  const updateSection = (section, changes) => {
+    for (const [key, value] of Object.entries(changes))
+      if (PARAMETER_SCHEMA.some((parameter) => parameter.id === `${section}_${key}`))
+        bridgeRef.current?.setHostParameter(`${section}_${key}`, value);
+    setState((s) => ({ ...s, [section]: { ...s[section], ...changes } }));
+  };
+
+  const sendPatchParameters = (patch, prefix = '') => {
+    for (const parameter of PARAMETER_SCHEMA) {
+      if (prefix && !parameter.id.startsWith(prefix)) continue;
+      const [section, key] = parameter.id.split('_');
+      const value = section.startsWith('l')
+        ? patch.layers[Number(section.slice(1))][key] : patch[section][key];
+      bridgeRef.current?.setHostParameter(parameter.id, value);
+    }
   };
 
   const handleSampleDrop = async (idx, file) => {
@@ -619,7 +788,7 @@ export default function App() {
       sampleKey: info.sampleKey,
       sampleRightKey: info.sampleRightKey,
       loaded: true,
-      trimStart: 0,
+      trimStart: info.trimStart,
       trimEnd: info.trimEnd
     });
     triggerHit(1.0).catch((error) => {
@@ -709,26 +878,102 @@ export default function App() {
     }
   };
 
-  const confirmPresetExport = (overwrite) => {
+  const requestSampleRelink = (message) => {
+    if (sampleRelinkResolveRef.current) {
+      return Promise.reject(new Error('A sample selection is already in progress.'));
+    }
+    return new Promise((resolve) => {
+      sampleRelinkResolveRef.current = resolve;
+      setSampleRelinkMessage(message);
+    });
+  };
+
+  const finishSampleRelink = (accepted) => {
+    const resolve = sampleRelinkResolveRef.current;
+    sampleRelinkResolveRef.current = null;
+    setSampleRelinkMessage('');
+    resolve?.(accepted);
+  };
+
+  const confirmPresetExport = async (overwrite) => {
     const bridge = bridgeRef.current;
     if (!bridge) return;
     setPresetStatus('SAVING PRESET...');
     setPresetError('');
     try {
       const patch = serializePatchState(state);
-      bridge.saveNativePluginState({ ...patch, uiTheme: themeId });
+      const originalPatch = JSON.stringify(patch);
+      const generation = patchGenerationRef.current;
+      const references = [];
+      for (let index = 0; index < patch.layers.length; index += 1) {
+        const layer = patch.layers[index];
+        if (!layer.loaded) continue;
+        let file = null;
+        if (typeof layer.sourceLocation === 'string' &&
+            (/^\//.test(layer.sourceLocation) || /^[A-Za-z]:[\\/]/.test(layer.sourceLocation))) {
+          try {
+            file = await bridge.readNativeSample(layer.sourceLocation);
+            if (!matchesReferencedSample(await bridge.decodeSampleFile(file), layer, bridge.vfsBuffers)) {
+              console.warn(`[LayerForge] Referenced sample no longer matches channel ${index + 1}.`);
+              file = null;
+            }
+          } catch (error) {
+            console.warn(`[LayerForge] Could not read the sample reference for channel ${index + 1}:`, error);
+          }
+        }
+        if (!file) {
+          if (!await requestSampleRelink(`Locate "${layer.sourceName || 'the original sample'}" for channel ${index + 1} to save this preset. The selected file must match the loaded audio.`)) {
+            throw new Error('Sample selection canceled; the preset was not saved.');
+          }
+          file = await bridge.chooseNativeSample();
+          if (!file) throw new Error('Sample selection canceled; the preset was not saved.');
+          if (!matchesReferencedSample(await bridge.decodeSampleFile(file), layer, bridge.vfsBuffers)) {
+            throw new Error(`The selected file does not match the audio loaded in channel ${index + 1}.`);
+          }
+        }
+        if (!/^[0-9a-f]{64}$/.test(file.sha256 || '')) {
+          throw new Error(`Could not verify the sample for channel ${index + 1}.`);
+        }
+        layer.sourceLocation = file.path;
+        references.push({ layer: index, path: file.path, sha256: file.sha256 });
+      }
+      const currentPatch = JSON.parse(patchStateRef.current);
+      delete currentPatch.uiTheme;
+      if (generation !== patchGenerationRef.current || JSON.stringify(currentPatch) !== originalPatch) {
+        throw new Error('The patch changed while preparing the preset. Save again.');
+      }
+      patchStateRef.current = JSON.stringify({ ...patch, uiTheme: themeId });
+      setState((current) => ({
+        ...current,
+        layers: current.layers.map((layer, index) => ({
+          ...layer, sourceLocation: patch.layers[index].sourceLocation
+        }))
+      }));
+      bridge.saveNativePluginState(snapshotPatchState());
+      const requestId = `preset-save-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const timeout = window.setTimeout(() => {
+        if (pendingPresetSaveRef.current?.requestId !== requestId) return;
+        pendingPresetSaveRef.current = null;
+        const message = 'Preset save was not confirmed. Check the preset library before trying again.';
+        setPresetStatus('PRESET SAVE UNCONFIRMED');
+        setPresetError(message);
+        console.error(`[LayerForge] ${message}`);
+      }, 60000);
+      pendingPresetSaveRef.current = { patch, requestId, timeout };
       bridge.exportNativePreset(overwrite
-        ? { state: patch, name: overwrite.name, overwrite: overwrite.filename }
-        : { state: patch, name: presetName });
+        ? { state: patch, name: overwrite.name, overwrite: overwrite.filename, references, requestId }
+        : { state: patch, name: presetName, references, requestId });
     } catch (error) {
-      console.error('[LayerForge] Could not save the preset:', error);
+      if (pendingPresetSaveRef.current)
+        window.clearTimeout(pendingPresetSaveRef.current.timeout);
+      pendingPresetSaveRef.current = null;
       setPresetStatus('PRESET SAVE FAILED');
       setPresetError(error.message);
+      console.error('[LayerForge] Could not save the preset:', error);
     }
   };
 
   const handleSelectPreset = async (filename) => {
-    setSelectedPreset(filename);
     setPresetError('');
     const bridge = bridgeRef.current;
     const preset = savedPresets.find((item) => item.filename === filename);
@@ -737,6 +982,7 @@ export default function App() {
       return;
     }
     if (!preset.available) {
+      setSelectedPreset(filename);
       setPresetStatus('PRESET UNAVAILABLE');
       setPresetError(preset.error || '');
       return;
@@ -744,21 +990,49 @@ export default function App() {
     if (!bridge || presetLoadingRef.current || exporting) return;
 
     presetLoadingRef.current = true;
+    const originalPatch = JSON.stringify(serializePatchState(state));
+    const generation = patchGenerationRef.current;
+    let loaded = false;
     setPresetStatus('LOADING PRESET...');
     setPresetError('');
     try {
-      const patch = await bridge.loadNativePreset(preset.filename);
+      const patch = await bridge.loadNativePreset(preset.filename, () => {
+        const currentPatch = JSON.parse(patchStateRef.current);
+        delete currentPatch.uiTheme;
+        return generation === patchGenerationRef.current && JSON.stringify(currentPatch) === originalPatch;
+      }, requestSampleRelink);
       const restored = restorePatchState(patch, bridge.vfsBuffers);
-      patchStateRef.current = JSON.stringify({ ...serializePatchState(restored), uiTheme: themeId });
+      const currentTheme = JSON.parse(patchStateRef.current).uiTheme;
+      patchStateRef.current = JSON.stringify({ ...serializePatchState(restored), uiTheme: currentTheme });
+      updatePatchBaseline(serializePatchState(restored));
+      bridge.saveNativePluginState({ ...snapshotPatchState(), loadedPreset: filename });
       setState(restored);
+      setSelectedPreset(filename);
       setPresetStatus('PRESET LOADED');
+      loaded = true;
     } catch (error) {
       console.error('[LayerForge] Could not load the saved preset:', error);
       setPresetStatus('PRESET LOAD FAILED');
       setPresetError(error.message);
     } finally {
       presetLoadingRef.current = false;
+      if (!loaded && generation === patchGenerationRef.current && !bridge.suspendParameterUpdates) {
+        try {
+          bridge.saveNativePluginState(snapshotPatchState());
+        } catch (error) {
+          console.error('[LayerForge] Could not save the patch state after loading a preset:', error);
+        }
+      }
     }
+  };
+
+  const requestPresetLoad = (filename) => {
+    const preset = savedPresets.find((item) => item.filename === filename);
+    if (preset?.available && patchChanged) {
+      setPresetToLoad(preset);
+      return;
+    }
+    handleSelectPreset(filename);
   };
 
   const confirmPresetDelete = () => {
@@ -776,27 +1050,38 @@ export default function App() {
     setPresetToDelete(null);
   };
 
+  const initializePatch = () => {
+    patchGenerationRef.current += 1;
+    const initialized = createDefaultState();
+    sendPatchParameters(initialized);
+    patchStateRef.current = JSON.stringify({ ...serializePatchState(initialized), uiTheme: themeId });
+    updatePatchBaseline(serializePatchState(initialized));
+    setState(initialized);
+    setTrace(null);
+    setSelectedPreset('');
+    setPresetStatus('');
+    setPresetError('');
+    setPreparedWav(null);
+    setWavActionStatus('');
+  };
+
   const confirmReset = () => {
     if (resetTarget?.kind === 'channel') {
       const index = resetTarget.index;
+      sendPatchParameters({ ...state, layers: state.layers.map((layer, i) =>
+        i === index ? resetLayerKnobs(layer) : layer) }, `l${index}_`);
       setState((current) => ({
         ...current,
         layers: current.layers.map((layer, layerIndex) =>
           layerIndex === index ? resetLayerKnobs(layer) : layer)
       }));
     } else if (resetTarget?.kind === 'module') {
+      sendPatchParameters(resetBusModuleKnobs(state, resetTarget.module),
+        resetTarget.module === 'noise' ? 'noise_' : `master_${resetTarget.module}`);
       setState((current) => resetBusModuleKnobs(current, resetTarget.module));
-    } else if (resetTarget?.kind === 'patch' && !presetLoadingRef.current && !exporting) {
-      patchGenerationRef.current += 1;
-      const initialized = createDefaultState();
-      patchStateRef.current = JSON.stringify({ ...serializePatchState(initialized), uiTheme: themeId });
-      setState(initialized);
-      setTrace(null);
-      setSelectedPreset('');
-      setPresetStatus('');
-      setPresetError('');
-      setPreparedWav(null);
-      setWavActionStatus('');
+    } else if (resetTarget?.kind === 'patch' && !presetLoadingRef.current && !exporting &&
+               presetStatus !== 'SAVING PRESET...') {
+      initializePatch();
     }
     setResetTarget(null);
   };
@@ -884,6 +1169,8 @@ export default function App() {
       ref={chassisRef}
       className={`chassis${isNativePlugin ? ' native-host' : ''}`}
       data-theme={theme.id}
+      data-border-trace={borderTrace.level}
+      data-border-trace-speed={borderTrace.speed}
       style={{
         '--theme-background': theme.background,
         '--theme-surface': theme.surface,
@@ -908,7 +1195,6 @@ export default function App() {
               <span className="brand-version">v{version} <i aria-hidden="true" /></span>
             </div>
           </div>
-          <BrandSignature isNativePlugin={isNativePlugin} />
         </div>
 
         <div className="actions">
@@ -920,9 +1206,11 @@ export default function App() {
               libraryStatus={presetLibraryStatus}
               status={presetStatus}
               error={presetError}
+              isInitialPatch={initialPatch}
               busy={presetStatus === 'LOADING PRESET...' || presetStatus === 'SAVING PRESET...' || exporting}
               ready={pluginStateLoaded}
-              onSelect={handleSelectPreset}
+              onSelect={requestPresetLoad}
+              onInitialize={() => patchChanged ? setResetTarget({ kind: 'patch' }) : initializePatch()}
               onRefresh={refreshPresetLibrary}
               onSave={() => {
                 setPresetError('');
@@ -989,7 +1277,15 @@ export default function App() {
             isNativePlugin={isNativePlugin}
             helpEnabled={helpEnabled}
             onToggleHelp={() => setHelpEnabled((enabled) => !enabled)}
-            initializeDisabled={(isNativePlugin && !pluginStateLoaded) || presetStatus === 'LOADING PRESET...' || exporting}
+            borderTrace={borderTrace}
+            onCycleBorderTraceLevel={() => setBorderTrace((current) => ({
+              ...current, level: BORDER_TRACE_LEVELS[(BORDER_TRACE_LEVELS.indexOf(current.level) + 1) % BORDER_TRACE_LEVELS.length]
+            }))}
+            onCycleBorderTraceSpeed={() => setBorderTrace((current) => ({
+              ...current, speed: BORDER_TRACE_SPEEDS[(BORDER_TRACE_SPEEDS.indexOf(current.speed) + 1) % BORDER_TRACE_SPEEDS.length]
+            }))}
+            initializeDisabled={(isNativePlugin && !pluginStateLoaded) || presetStatus === 'LOADING PRESET...' ||
+              presetStatus === 'SAVING PRESET...' || exporting}
             onInitialize={() => setResetTarget({ kind: 'patch' })}
             onAbout={() => setShowAbout(true)}
             onDiagnostics={() => setShowDiagnostics((open) => !open)}
@@ -1003,7 +1299,7 @@ export default function App() {
         <DiagnosticsPanel entries={diagnostics} onClose={() => setShowDiagnostics(false)} />
       )}
 
-      {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+      {showAbout && <AboutDialog onClose={() => setShowAbout(false)} isNativePlugin={isNativePlugin} />}
 
       <main className="rack">
         {state.layers.map((layer, idx) => (
@@ -1069,7 +1365,7 @@ export default function App() {
             previewStatus={visibleSumStatus}
             playbackId={playbackId}
             accent={theme.accentTertiary}
-            onChange={(changes) => setState((s) => ({ ...s, noise: { ...s.noise, ...changes } }))}
+            onChange={(changes) => updateSection('noise', changes)}
           />
 
           <div className="knob-grid">
@@ -1082,7 +1378,7 @@ export default function App() {
               unit="Hz"
               decimals={0}
               accent="var(--theme-accent-tertiary)"
-              onChange={(v) => setState((s) => ({ ...s, noise: { ...s.noise, cutoff: v } }))}
+              onChange={(v) => updateSection('noise', { cutoff: v })}
             />
             <RotaryKnob
               label="RESO"
@@ -1092,7 +1388,7 @@ export default function App() {
               defaultValue={1.4}
               decimals={1}
               accent="var(--theme-accent-tertiary)"
-              onChange={(v) => setState((s) => ({ ...s, noise: { ...s.noise, q: v } }))}
+              onChange={(v) => updateSection('noise', { q: v })}
             />
             <RotaryKnob
               label="DECAY"
@@ -1103,7 +1399,7 @@ export default function App() {
               unit="s"
               decimals={3}
               accent="var(--theme-accent-tertiary)"
-              onChange={(v) => setState((s) => ({ ...s, noise: { ...s.noise, decay: v } }))}
+              onChange={(v) => updateSection('noise', { decay: v })}
             />
             <RotaryKnob
               label="CLIP DRV"
@@ -1114,7 +1410,7 @@ export default function App() {
               unit="dB"
               decimals={1}
               accent="var(--theme-accent-secondary)"
-              onChange={(v) => setState((s) => ({ ...s, noise: { ...s.noise, clipDrive: v } }))}
+              onChange={(v) => updateSection('noise', { clipDrive: v })}
             />
             <RotaryKnob
               label="MIX"
@@ -1124,7 +1420,7 @@ export default function App() {
               defaultValue={0.22}
               decimals={2}
               accent="var(--theme-accent)"
-              onChange={(v) => setState((s) => ({ ...s, noise: { ...s.noise, gain: v } }))}
+              onChange={(v) => updateSection('noise', { gain: v })}
             />
           </div>
           </ModuleSettingsDialog>
@@ -1155,17 +1451,17 @@ export default function App() {
                 <RotaryKnob
                   label="SAT DRIVE" value={state.master.saturationDrive} min={0} max={24}
                   defaultValue={6} unit="dB" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationDrive: v } }))}
+                  onChange={(v) => updateSection('master', { saturationDrive: v })}
                 />
                 <RotaryKnob
                   label="SAT DRY/WET" value={state.master.saturationMix} min={0} max={1}
                   defaultValue={1} decimals={2}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationMix: v } }))}
+                  onChange={(v) => updateSection('master', { saturationMix: v })}
                 />
                 <RotaryKnob
                   label="OUTPUT" value={state.master.saturationGainDb} min={-24} max={24}
                   defaultValue={0} unit="dB" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, saturationGainDb: v } }))}
+                  onChange={(v) => updateSection('master', { saturationGainDb: v })}
                 />
               </div>
               </ModuleSettingsDialog>
@@ -1195,37 +1491,37 @@ export default function App() {
                 <RotaryKnob
                   label="THRESH" value={state.master.glueThreshold} min={-36} max={0}
                   defaultValue={-12} unit="dB" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueThreshold: v } }))}
+                  onChange={(v) => updateSection('master', { glueThreshold: v })}
                 />
                 <RotaryKnob
                   label="RATIO" value={state.master.glueRatio} min={1} max={8}
                   defaultValue={2} unit=":1" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueRatio: v } }))}
+                  onChange={(v) => updateSection('master', { glueRatio: v })}
                 />
                 <RotaryKnob
                   label="ATTACK" value={state.master.glueAttack * 1000} min={1} max={100}
                   defaultValue={10} unit="ms" decimals={0}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueAttack: v / 1000 } }))}
+                  onChange={(v) => updateSection('master', { glueAttack: v / 1000 })}
                 />
                 <RotaryKnob
                   label="RELEASE" value={state.master.glueRelease * 1000} min={30} max={600}
                   defaultValue={120} unit="ms" decimals={0}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueRelease: v / 1000 } }))}
+                  onChange={(v) => updateSection('master', { glueRelease: v / 1000 })}
                 />
                 <RotaryKnob
                   label="KNEE" value={state.master.glueKnee} min={0} max={24}
                   defaultValue={6} unit="dB" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueKnee: v } }))}
+                  onChange={(v) => updateSection('master', { glueKnee: v })}
                 />
                 <RotaryKnob
                   label="DRY/WET" value={state.master.glueMix} min={0} max={1}
                   defaultValue={1} decimals={2}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueMix: v } }))}
+                  onChange={(v) => updateSection('master', { glueMix: v })}
                 />
                 <RotaryKnob
                   label="OUTPUT" value={state.master.glueGainDb} min={-24} max={24}
                   defaultValue={0} unit="dB" decimals={1}
-                  onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, glueGainDb: v } }))}
+                  onChange={(v) => updateSection('master', { glueGainDb: v })}
                 />
               </div>
               </ModuleSettingsDialog>
@@ -1249,7 +1545,7 @@ export default function App() {
               unit="dB"
               decimals={1}
               accent="var(--theme-accent-secondary)"
-              onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, drive: v } }))}
+              onChange={(v) => updateSection('master', { drive: v })}
             />
             <RotaryKnob
               label="SOFT/HARD"
@@ -1259,7 +1555,7 @@ export default function App() {
               defaultValue={0.45}
               decimals={2}
               accent="var(--theme-accent-secondary)"
-              onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, hardness: v } }))}
+              onChange={(v) => updateSection('master', { hardness: v })}
             />
             <RotaryKnob
               label="CEILING"
@@ -1269,7 +1565,7 @@ export default function App() {
               defaultValue={0.95}
               decimals={2}
               accent="var(--theme-accent)"
-              onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, ceiling: v } }))}
+              onChange={(v) => updateSection('master', { ceiling: v })}
             />
             <RotaryKnob
               label="OUTPUT"
@@ -1281,7 +1577,7 @@ export default function App() {
               decimals={1}
               description="Adjust final output after the clipper and ceiling. Boosting can exceed 0 dBFS."
               accent="var(--theme-accent-secondary)"
-              onChange={(v) => setState((s) => ({ ...s, master: { ...s.master, outputDb: v } }))}
+              onChange={(v) => updateSection('master', { outputDb: v })}
             />
           </div>
         </section>
@@ -1333,7 +1629,8 @@ export default function App() {
                 type="button"
                 className="btn-export btn-export-warning"
                 onClick={confirmReset}
-                disabled={resetTarget.kind === 'patch' && (presetStatus === 'LOADING PRESET...' || exporting)}
+                disabled={resetTarget.kind === 'patch' && (presetStatus === 'LOADING PRESET...' ||
+                  presetStatus === 'SAVING PRESET...' || exporting)}
               >
                 {resetTarget.kind === 'patch' ? 'INITIALIZE' : 'RESET KNOBS'}
               </button>
@@ -1342,15 +1639,46 @@ export default function App() {
         </div>
       )}
 
-      {showPresetWarning && (
+      {presetToLoad && (
+        <div className="modal-backdrop">
+          <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-load-title">
+            <span className="storage-dialog-icon">!</span>
+            <h2 id="preset-load-title">LOAD PRESET?</h2>
+            <p>
+              Loading "{presetToLoad.name}" replaces the current patch. Unsaved settings and
+              samples will be lost. To keep them, save first, then select the preset again.
+            </p>
+            <div className="storage-dialog-actions">
+              <button type="button" className="btn-debug" onClick={() => setPresetToLoad(null)} autoFocus>
+                CANCEL
+              </button>
+              <button type="button" className="btn-debug" onClick={() => {
+                setPresetToLoad(null);
+                setPresetError('');
+                setShowPresetWarning(true);
+              }}>
+                SAVE AS
+              </button>
+              <button type="button" className="btn-export btn-export-warning" onClick={() => {
+                setPresetToLoad(null);
+                handleSelectPreset(presetToLoad.filename);
+              }}>
+                LOAD WITHOUT SAVING
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showPresetWarning && !sampleRelinkMessage && (
         <div className="modal-backdrop">
           <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-warning-title">
             <span className="storage-dialog-icon">!</span>
             <h2 id="preset-warning-title">SAVE PRESET</h2>
             <p>
-              Saves the plugin configuration and complete sample audio for every loaded channel,
-              not a summed WAV. Presets can be large and use disk space. They are stored in the
-              LayerForge preset library.
+              Saves the plugin configuration and references to the original sample files, not
+              the audio itself. Moving or changing a sample requires locating the original file
+              when loading. Presets are stored in the LayerForge preset library.
             </p>
             <label className="preset-name-field">
               <span>PRESET NAME</span>
@@ -1383,13 +1711,13 @@ export default function App() {
           </section>
         </div>
       )}
-      {presetToOverwrite && (
+      {presetToOverwrite && !sampleRelinkMessage && (
         <div className="modal-backdrop">
           <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-overwrite-title">
             <span className="storage-dialog-icon">!</span>
             <h2 id="preset-overwrite-title">REPLACE PRESET?</h2>
             <p>
-              Replace "{presetToOverwrite.name}" with the current patch and its samples? The previous
+              Replace "{presetToOverwrite.name}" with the current patch and its sample references? The previous
               contents of this preset cannot be recovered.
             </p>
             {presetError && <p className="preset-dialog-error">{presetError}</p>}
@@ -1403,6 +1731,23 @@ export default function App() {
                 disabled={presetStatus === 'SAVING PRESET...'}
               >
                 REPLACE
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {sampleRelinkMessage && (
+        <div className="modal-backdrop">
+          <section className="storage-dialog" role="dialog" aria-modal="true" aria-labelledby="sample-relink-title">
+            <span className="storage-dialog-icon">!</span>
+            <h2 id="sample-relink-title">LOCATE ORIGINAL SAMPLE</h2>
+            <p>{sampleRelinkMessage}</p>
+            <div className="storage-dialog-actions">
+              <button type="button" className="btn-debug" onClick={() => finishSampleRelink(false)} autoFocus>
+                CANCEL
+              </button>
+              <button type="button" className="btn-export btn-export-warning" onClick={() => finishSampleRelink(true)}>
+                LOCATE SAMPLE
               </button>
             </div>
           </section>
