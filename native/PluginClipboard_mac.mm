@@ -252,8 +252,19 @@ struct WavDragViewState
     sourceOperationMaskForDraggingContext:(NSDraggingContext)context
 {
     juce::ignoreUnused(session, context);
-    // Hosts pick the operation they support; Live does not accept a Copy-only source.
-    return NSDragOperationEvery;
+    return NSDragOperationCopy;
+}
+
+- (void)draggingSession:(NSDraggingSession *)session willBeginAtPoint:(NSPoint)screenPoint
+{
+    NSLog(@"LayerForge transfer: drag session began at %.1f,%.1f; types=%@", screenPoint.x, screenPoint.y,
+          session.draggingPasteboard.types);
+}
+
+- (void)draggingSession:(NSDraggingSession *)session movedToPoint:(NSPoint)screenPoint
+{
+    juce::ignoreUnused(session);
+    NSLog(@"LayerForge transfer: drag moved to %.1f,%.1f", screenPoint.x, screenPoint.y);
 }
 
 - (void)draggingSession:(NSDraggingSession *)session
@@ -323,7 +334,11 @@ bool beginWavFileDrag(juce::Component &source, const WavData &wav, std::function
     // Offer the modern URL plus the legacy filename list; some hosts only look for one of them.
     NSPasteboardItem *pasteboardItem = [[NSPasteboardItem alloc] init];
     [pasteboardItem setString:[fileUrl absoluteString] forType:NSPasteboardTypeFileURL];
+    [pasteboardItem setString:[fileUrl absoluteString] forType:NSPasteboardTypeURL];
     [pasteboardItem setPropertyList:@[ path ] forType:NSFilenamesPboardType];
+    NSData *wavData = [NSData dataWithBytes:wav.bytes.data() length:wav.bytes.size()];
+    [pasteboardItem setData:wavData forType:@"com.microsoft.waveform-audio"];
+    [pasteboardItem setData:wavData forType:NSPasteboardTypeSound];
     NSDraggingItem *item = [[NSDraggingItem alloc] initWithPasteboardWriter:pasteboardItem];
     const auto location = [event locationInWindow];
     [item setDraggingFrame:[view convertRect:NSMakeRect(location.x - 16.0, location.y - 16.0, 32.0, 32.0) fromView:nil]
