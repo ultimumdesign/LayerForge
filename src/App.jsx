@@ -40,14 +40,6 @@ export function reorderBusModules(order, source, target) {
   return next;
 }
 
-export function getVisibleWavDragBounds(rect, viewportWidth, viewportHeight) {
-  const x = Math.max(0, rect.left);
-  const y = Math.max(0, rect.top);
-  const width = Math.min(viewportWidth, rect.right) - x;
-  const height = Math.min(viewportHeight, rect.bottom) - y;
-  return width > 0 && height > 0 ? { x, y, width, height } : null;
-}
-
 export function observeNativeEditorHeight(element, notify) {
   let timer = 0;
   let lastHeight = 0;
@@ -108,6 +100,20 @@ export function AboutDialog({ onClose }) {
   );
 }
 
+export function WavCopyButton({ ready, exporting, status, helpEnabled, onCopy }) {
+  return (
+    <button
+      className={`topbar-button topbar-ready ${ready ? 'is-ready' : ''}`}
+      onClick={onCopy}
+      disabled={!ready || exporting}
+      aria-live="polite"
+      title={helpEnabled ? 'Copy the prepared WAV, then paste it in your DAW. Prepare a WAV first.' : undefined}
+    >
+      {ready ? status || 'COPY WAV' : 'COPY WAV'}
+    </button>
+  );
+}
+
 function ModuleSettingsDialog({ title, onClose, onReset, children }) {
   const handleKeyDown = (event) => {
     if (event.target.closest('[role="dialog"]') !== event.currentTarget || event.defaultPrevented) return;
@@ -152,7 +158,6 @@ function ModuleSettingsDialog({ title, onClose, onReset, children }) {
 
 export default function App() {
   const bridgeRef = useRef(null);
-  const wavActionRef = useRef(null);
   const moduleSettingsTriggerRef = useRef(null);
   const busDragRef = useRef(null);
   const busGripRefs = useRef({});
@@ -271,68 +276,12 @@ export default function App() {
   }, [resetTarget]);
 
   useEffect(() => {
-    if (!preparedWav || !bridgeRef.current?.isNativePlugin) return;
-
-    const bridge = bridgeRef.current;
-    const target = wavActionRef.current;
-    if (!target) return;
-
-    const updateTarget = () => {
-      try {
-        if (exporting) {
-          bridge.setNativeWavDragTarget(preparedWav.key, {}, false);
-          return;
-        }
-
-        const bounds = getVisibleWavDragBounds(
-          target.getBoundingClientRect(), window.innerWidth, window.innerHeight
-        );
-        if (!bounds) {
-          bridge.setNativeWavDragTarget(preparedWav.key, {}, false);
-          return;
-        }
-        bridge.setNativeWavDragTarget(preparedWav.key, bounds);
-      } catch (error) {
-        console.error('[LayerForge] Could not update the native WAV drag target:', error);
-      }
-    };
-
-    const observer =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateTarget);
-    observer?.observe(target);
-    // Siblings can move the button without resizing it (preset status, wrapping).
-    const actions = target.closest('.actions');
-    actions?.querySelectorAll(':scope > *, .topbar-group > *').forEach((node) => observer?.observe(node));
-    window.addEventListener('resize', updateTarget);
-    window.addEventListener('scroll', updateTarget, true);
-    updateTarget();
-
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener('resize', updateTarget);
-      window.removeEventListener('scroll', updateTarget, true);
-      try {
-        bridge.setNativeWavDragTarget(preparedWav.key, {}, false);
-      } catch (error) {
-        console.error('[LayerForge] Could not disable the native WAV drag target:', error);
-      }
-    };
-  }, [preparedWav, exporting]);
-
-  useEffect(() => {
     const onWavActionStatus = (event) => {
       const { key, status, error } = event.detail || {};
       if (key !== preparedWav?.key) return;
       if (error) console.error('[LayerForge] Native WAV action failed:', error);
 
       const labels = {
-        copied: 'COPIED',
-        copyFailed: 'COPY FAILED',
-        dragReady: 'READY TO DRAG',
-        dragStarted: 'DRAGGING...',
-        dragFailed: 'DRAG FAILED',
-        dropAccepted: 'DROP OK',
-        dropRejected: 'DROP REJECTED',
         saved: 'SAVED',
         saveFailed: 'SAVE FAILED',
         saveCancelled: 'SAVE CANCELED'
@@ -729,34 +678,6 @@ export default function App() {
     }
   };
 
-  const handleWavDragStart = (event) => {
-    if (!preparedWav || !bridgeRef.current) return;
-
-    // The plug-in webview cannot hand files to other apps; let the native window start the drag.
-    if (bridgeRef.current.isNativePlugin) {
-      event.preventDefault();
-      bridgeRef.current.startNativeWavDrag(preparedWav.key);
-      return;
-    }
-
-    try {
-      const file = new File([preparedWav.blob], preparedWav.filename, { type: 'audio/wav' });
-      event.dataTransfer?.items.add(file);
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
-    } catch (error) {
-      console.error('[LayerForge] Could not attach the WAV file to the drag:', error);
-    }
-
-    setWavActionStatus('COPYING WAV...');
-    bridgeRef.current.copyNativeWavToClipboard(preparedWav.key).then(
-      () => setWavActionStatus('COPIED'),
-      (error) => {
-        console.error('[LayerForge] Could not copy WAV to the clipboard:', error);
-        setWavActionStatus('COPY FAILED');
-      }
-    );
-  };
-
   const handleSavePreparedWav = () => {
     if (!preparedWav || !bridgeRef.current) return;
     setWavActionStatus('SAVING WAV...');
@@ -1013,23 +934,14 @@ export default function App() {
               className="topbar-button"
               onClick={handleExport}
               disabled={exporting}
-              title={helpEnabled ? (isNativePlugin ? 'Render a WAV in memory for copy or drag' : 'Render and download a 24-bit WAV') : undefined}
+              title={helpEnabled ? (isNativePlugin ? 'Render a WAV in memory for copying or saving' : 'Render and download a 24-bit WAV') : undefined}
             >
               {exporting ? 'RENDERING WAV...' : wavActionStatus === 'PREPARE FAILED'
                 ? 'PREPARE FAILED - RETRY'
                 : isNativePlugin ? 'PREPARE WAV' : 'EXPORT 24-BIT .WAV'}
             </button>
-            <button
-              ref={wavActionRef}
-              className={`topbar-button topbar-ready ${preparedWav ? 'is-ready' : ''}`}
-              onClick={handleCopyPreparedWav}
-              draggable={Boolean(preparedWav) && !exporting}
-              onDragStart={handleWavDragStart}
-              disabled={!preparedWav || exporting}
-              title={helpEnabled ? 'Click to copy or drag the prepared WAV. Prepare a WAV first.' : undefined}
-            >
-              {preparedWav ? wavActionStatus || 'COPY / DRAG WAV' : 'COPY / DRAG WAV'}
-            </button>
+            <WavCopyButton ready={Boolean(preparedWav)} exporting={exporting}
+              status={wavActionStatus} helpEnabled={helpEnabled} onCopy={handleCopyPreparedWav} />
             <button
               className="topbar-button"
               onClick={handleSavePreparedWav}

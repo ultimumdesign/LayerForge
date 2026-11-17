@@ -22,7 +22,8 @@ guide covers the interface and workflow; for the underlying algorithms see the
    and velocity scales the level.
 4. **Shape:** trim the sample, draw the gain envelope, set MIX, then add other
    layers. The noise synth is off by default; select **OFF · ENABLE** to use it.
-5. **Export (optional):** **PREPARE WAV**, then **SAVE WAV**.
+5. **Export (optional):** **PREPARE WAV**, then **COPY WAV** and paste into
+   an audio track, or choose **SAVE WAV**.
 
 The rack follows the signal path: three sample channels → **SIGNAL CHAIN**
 (noise, saturation, glue) → **OUTPUT STAGE** → **OUTPUT SCOPE** display. Expand the
@@ -257,12 +258,14 @@ signal cannot be split into independent per-source contributions.
   (regardless of host sample rate) from a full-velocity hit. Prepare again after
   any change. **SAVE WAV** lets you choose a destination; nothing is written
   automatically.
-- **COPY / DRAG WAV** gives the DAW a real file. If the WAV is unsaved, a
-  temporary copy is written only for the transfer. Because DAWs read the file
-  after the drop, it is kept until your next drag or copy, or until the editor
-  closes, then deleted.
-  A saved WAV is referenced directly and never deleted. If a DAW rejects it,
-  import the saved WAV through its browser. Native drag-out is macOS-only.
+- **COPY WAV** places a file reference on the clipboard; **COPIED** confirms
+  the clipboard write, not import into the DAW. Select an audio track or clip
+  slot and paste using the host's paste command. An unsaved WAV gets a temporary
+  transfer file, retained when the editor closes and removed on the next copy
+  in the plug-in process; transfer folders older than two hours may also be
+  removed when another temporary transfer is created. A saved WAV is referenced
+  directly and never deleted. WAV drag-out from the plug-in is not available.
+  If paste fails, use **SAVE WAV** and import the saved file.
 
 The top bar has two fixed rows (presets, then audio, THEME and MENU) with
 fixed-width controls and a reserved status slot, so nothing moves when a WAV
@@ -286,7 +289,7 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 | Too quiet or loud after saturation/glue | Adjust the effect's OUTPUT and watch its meters and OUTPUT PEAK. |
 | Harsh, gritty highs at high drive | Clippers and the saturator do not oversample; reduce drive or SHAPE, or low-pass the channel. |
 | Plug-in not found | Rescan in the DAW and confirm the build matches the platform (VST3 on macOS/Windows, AU on macOS). |
-| Copy or drag rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
+| Copy fails or paste is rejected | **SAVE WAV**, then import from the file manager or DAW browser. |
 | Bug report | **MENU → DIAGNOSTICS**, copy the report, and include it. |
 
 ## Limitations and validation
@@ -298,6 +301,6 @@ or diagnostic log files itself; the DAW and OS webview may manage their own.
 - WAV export is fixed at 44.1 kHz / 24-bit.
 - Automated checks (`npm run check`: lint and the Node tests) cover DSP and
   waveform data, and optional native MIDI tests cover the processor. They do not
-  certify host workflows. Project/preset round trips, clipboard, drag/drop,
+  certify host workflows. Project/preset round trips, clipboard, sample import,
   window sizing and cross-platform behavior need manual testing in a DAW. See
   [CONTRIBUTING.md](CONTRIBUTING.md) and [RELEASING.md](RELEASING.md).

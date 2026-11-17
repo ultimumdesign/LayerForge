@@ -48,7 +48,7 @@ const sample = Float32Array.from(
 test('waveform viewer switches to the trace and shows source and output time axes', async () => {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
   try {
-    const { default: App, AboutDialog, getVisibleWavDragBounds, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const { default: App, AboutDialog, WavCopyButton, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
     const app = renderToStaticMarkup(React.createElement(App));
     const order = ['noise', 'saturation', 'glue'];
     assert.deepEqual(reorderBusModules(order, 'noise', 'glue'), ['saturation', 'glue', 'noise']);
@@ -88,6 +88,53 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(app, /channel-extra-controls/);
     const { ChannelStrip } = await server.ssrLoadModule('/src/components/ChannelStrip.jsx');
     const { LayerForgeBridge } = await server.ssrLoadModule('/src/audio/bridge.js');
+    const copyButton = (props) => renderToStaticMarkup(React.createElement(WavCopyButton, props));
+    assert.match(copyButton({ ready: false }), /disabled[^>]*>COPY WAV/);
+    assert.match(copyButton({ ready: true, status: 'COPIED' }), /aria-live="polite"[^>]*>COPIED/);
+    assert.match(copyButton({ ready: true, status: 'COPY FAILED' }), />COPY FAILED/);
+    assert.doesNotMatch(copyButton({ ready: true }), /draggable|DRAG/);
+    assert.match(copyButton({ ready: true, exporting: true }), /disabled/);
+
+    const { PresetBar } = await server.ssrLoadModule('/src/components/PresetBar.jsx');
+    const presetProps = {
+      presets: [
+        { filename: 'kick.lfpreset', name: 'Kick', available: true },
+        { filename: 'missing.lfpreset', name: 'Missing', available: false, error: 'Cannot read preset' }
+      ],
+      ready: true,
+      busy: false
+    };
+    const presetBar = (props) => renderToStaticMarkup(React.createElement(PresetBar, { ...presetProps, ...props }));
+    assert.match(presetBar({ selected: 'kick.lfpreset' }), /value="kick\.lfpreset" selected/);
+    assert.match(presetBar({ selected: 'kick.lfpreset' }), />LOADED<\/output>/);
+    assert.match(presetBar({ selected: 'missing.lfpreset' }), />MISSING<\/output>/);
+    assert.match(presetBar({ selected: 'absent.lfpreset' }), />INIT<\/output>/);
+    assert.match(presetBar({ selected: 'kick.lfpreset', busy: true }), /disabled[^>]*>[\s\n]*SAVE/);
+
+    const originalWindow = globalThis.window;
+    try {
+      const messages = [];
+      globalThis.window = {
+        __JUCE__: {},
+        _postMessageToPluginBackend: (type, payload) => messages.push({ type, payload }),
+        setTimeout,
+        clearTimeout
+      };
+      const clipboardBridge = new LayerForgeBridge();
+      const copy = clipboardBridge.copyNativeWavToClipboard('prepared-wav');
+      assert.equal(messages[0].type, 'wavClipboard');
+      assert.equal(messages[0].payload.key, 'prepared-wav');
+      clipboardBridge.nativeWavClipboardListener({ requestId: messages[0].payload.requestId, success: true });
+      await copy;
+      const failedCopy = clipboardBridge.copyNativeWavToClipboard('prepared-wav');
+      clipboardBridge.nativeWavClipboardListener({
+        requestId: messages[1].payload.requestId, success: false, error: 'Clipboard unavailable'
+      });
+      await assert.rejects(failedCopy, /Clipboard unavailable/);
+      assert.equal(clipboardBridge.pendingClipboardWrites.size, 0);
+    } finally {
+      globalThis.window = originalWindow;
+    }
     const bridge = new LayerForgeBridge();
     const nativeFile = new Promise((resolve, reject) => {
       bridge.pendingSampleFile = { requestId: 'sample-1', resolve, reject };
@@ -219,16 +266,6 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(renderToStaticMarkup(help), /<button/);
     const disabledHelp = renderToStaticMarkup(React.createElement(HelpEnabledContext.Provider, { value: false }, help));
     assert.equal(disabledHelp, 'CONTROL');
-
-    assert.deepEqual(
-      getVisibleWavDragBounds({ left: 20, top: -5, right: 90, bottom: 25 }, 100, 100),
-      { x: 20, y: 0, width: 70, height: 25 }
-    );
-    assert.deepEqual(
-      getVisibleWavDragBounds({ left: 80, top: 90, right: 120, bottom: 110 }, 100, 100),
-      { x: 80, y: 90, width: 20, height: 10 }
-    );
-    assert.equal(getVisibleWavDragBounds({ left: 0, top: -40, right: 50, bottom: -1 }, 100, 100), null);
 
     const previousWindow = globalThis.window;
     const previousObserver = globalThis.ResizeObserver;

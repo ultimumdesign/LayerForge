@@ -42,7 +42,8 @@ and `docs/` the technical documentation. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before touching the processor or
 bridge, and [docs/DSP.md](docs/DSP.md) before changing the sound.
 
-Native MIDI tests are optional. Configure CMake with
+The macOS release build runs native MIDI and host-state tests. To run them
+locally, configure CMake with
 `-DLAYERFORGE_BUILD_TESTS=ON` and build the `LayerForgeNativeTests` target
 (after `npm run build:ui` and `npm run build:native` have generated the
 embedded assets).

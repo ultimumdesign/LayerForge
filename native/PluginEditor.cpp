@@ -681,78 +681,6 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                     return;
                 }
 
-                if (type == "wavDragTarget") {
-                    const auto* target = messagePayload.getDynamicObject();
-                    if (target == nullptr) {
-                        reportNativeDiagnostic(webView.get(), "error", "Invalid WAV drag target");
-                        return;
-                    }
-
-#if JUCE_MAC
-                    if (!static_cast<bool>(target->getProperty("enabled"))) {
-                        nativeWavDragView->setVisible(false);
-                        return;
-                    }
-
-                    const auto key = target->getProperty("key").toString().toStdString();
-                    const auto staged = stagedWavs.find(key);
-                    if (key.empty() || staged == stagedWavs.end()) {
-                        nativeWavDragView->setVisible(false);
-                        reportNativeDiagnostic(webView.get(), "error", "WAV drag target has no prepared audio");
-                        return;
-                    }
-
-                    const auto x = static_cast<double>(target->getProperty("x"));
-                    const auto y = static_cast<double>(target->getProperty("y"));
-                    const auto width = static_cast<double>(target->getProperty("width"));
-                    const auto height = static_cast<double>(target->getProperty("height"));
-                    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height)
-                        || x < 0.0 || y < 0.0 || width <= 0.0 || height <= 0.0
-                        || x + width > webView->getWidth() || y + height > webView->getHeight()) {
-                        nativeWavDragView->setVisible(false);
-                        reportNativeDiagnostic(webView.get(), "error", "WAV drag target bounds are invalid");
-                        return;
-                    }
-
-                    layerforge::setWavDragViewTarget(
-                        nativeWavDragView->getView(), key, staged->second);
-                    nativeWavDragView->setBounds(
-                        webView->getX() + static_cast<int>(std::lround(x)),
-                        webView->getY() + static_cast<int>(std::lround(y)),
-                        static_cast<int>(std::lround(width)),
-                        static_cast<int>(std::lround(height)));
-                    nativeWavDragView->setVisible(true);
-                    nativeWavDragView->toFront(false);
-#endif
-                    return;
-                }
-
-                if (type == "wavFileDrag") {
-#if JUCE_MAC
-                    const auto* dragRequest = messagePayload.getDynamicObject();
-                    const auto key = dragRequest == nullptr
-                        ? juce::String()
-                        : dragRequest->getProperty("key").toString();
-                    const auto staged = stagedWavs.find(key.toStdString());
-                    if (staged == stagedWavs.end()) {
-                        emitWavActionStatus(webView.get(), key, "dragFailed", "The prepared WAV is no longer available");
-                        return;
-                    }
-                    const auto weak = juce::Component::SafePointer<juce::Component>(this);
-                    if (!layerforge::beginWavFileDrag(*this, *staged->second, [weak, key, this](bool accepted) {
-                            if (weak != nullptr)
-                                emitWavActionStatus(webView.get(), key,
-                                                    accepted ? "dropAccepted" : "dropRejected", {});
-                        })) {
-                        emitWavActionStatus(webView.get(), key, "dragFailed",
-                                            "macOS did not start the WAV drag");
-                        return;
-                    }
-                    emitWavActionStatus(webView.get(), key, "dragStarted", {});
-#endif
-                    return;
-                }
-
                 if (type == "wavClipboard") {
                     const auto* clipboardRequest = messagePayload.getDynamicObject();
                     if (clipboardRequest == nullptr) {
@@ -912,22 +840,6 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
     );
 
     addAndMakeVisible(*webView);
-#if JUCE_MAC
-    nativeWavDragView = std::make_unique<juce::NSViewComponent>();
-    addAndMakeVisible(*nativeWavDragView);
-    layerforge::attachWavDragView(
-        *nativeWavDragView,
-        [this](const std::string& key, const juce::String& status, const juce::String& error) {
-            if (status.startsWith("drag") || status.startsWith("drop"))
-                writeNativeDiagnostic("[WAV drag] " + juce::String(key) + ": " + status
-                                      + (error.isEmpty() ? juce::String() : " - " + error));
-            if (!error.isEmpty())
-                reportNativeDiagnostic(webView.get(), "error", error);
-            emitWavActionStatus(webView.get(), juce::String(key), status, error);
-        });
-    nativeWavDragView->setVisible(false);
-#endif
-
 #if JUCE_DEBUG
     webView->goToURL("http://localhost:5173");
 #else
@@ -945,9 +857,6 @@ LayerForgeAudioProcessorEditor::~LayerForgeAudioProcessorEditor()
 {
     stopTimer();
     audioProcessor.setOutputTrace(false, 0);
-#if JUCE_MAC
-    layerforge::detachWavDragView(nativeWavDragView->getView());
-#endif
 }
 
 void LayerForgeAudioProcessorEditor::timerCallback()

@@ -36,7 +36,7 @@ at its position in the bus order. Only modules *after* noise process it.
 | Item | Behavior |
 |---|---|
 | Trigger | Any MIDI note-on (any note, any MIDI channel) or Space/click in the editor. Note-off is ignored, and the played note does not change pitch. |
-| Velocity | Linear scale `velocity/127` applied to the sum of channels and noise, **before** saturation, glue and the master clipper. Lower velocity therefore also drives the nonlinear stages less. |
+| Velocity | Linear scale `velocity/127` applied to the channel sum and to noise as each enters the bus. Lower velocity drives the master clipper and any downstream bus effects less; effects before the noise module do not process noise. |
 | Gate | A trigger raises a 28 ms gate. Samples are one-shots; the noise envelope restarts on a trigger but is not cut short by the gate (see [Noise synth](#noise-synth)). |
 | Native timing | The native processor reads MIDI sample positions within each audio block, so triggers are sample-accurate. Browser triggers use timers and Web MIDI and are not. |
 | Retriggering | Each channel has two alternating voices. A new hit starts immediately while the previous voice fades out with a 10 ms time constant, avoiding clicks. A third rapid hit reuses the oldest voice. |

@@ -36,7 +36,7 @@ bool copyWavToClipboard(const WavData &wav)
         return false;
     if (file == juce::File())
     {
-        // Lives only until the next copy or until the editor closes.
+        // Kept after the editor closes so the host can paste it.
         file = writeTemporaryWavFile(wav);
         if (file == juce::File())
             return false;

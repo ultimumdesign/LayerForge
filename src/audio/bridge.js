@@ -690,20 +690,6 @@ export class LayerForgeBridge {
     return result;
   }
 
-  setNativeWavDragTarget(key, bounds = {}, enabled = true) {
-    const postMessage = window._postMessageToPluginBackend;
-    if (!this.isNativePlugin || typeof postMessage !== 'function') return;
-
-    postMessage('wavDragTarget', { key, enabled, ...bounds });
-  }
-
-  startNativeWavDrag(key) {
-    const postMessage = window._postMessageToPluginBackend;
-    if (!this.isNativePlugin || typeof postMessage !== 'function') return false;
-    postMessage('wavFileDrag', { key });
-    return true;
-  }
-
   saveNativeWav(key) {
     const postMessage = window._postMessageToPluginBackend;
     if (!this.isNativePlugin || typeof postMessage !== 'function') {

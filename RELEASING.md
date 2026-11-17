@@ -23,8 +23,9 @@ manual dispatches:
    findings but does not itself fail on alerts; review them before publishing.
 3. **Build matrix** starts only after quality and JavaScript security pass. The macOS runner builds a
    universal VST3; the Windows runner builds an x64 VST3. Each runner packages
-   and checks its ZIP and binary; macOS also checks signature, architectures
-   and bundle version. Each uploads its ZIP as a workflow artifact.
+   and checks its ZIP and binary; macOS also runs native MIDI and host-state
+   tests and checks signature, architectures and bundle version. Each uploads
+   its ZIP as a workflow artifact.
 4. **Release** runs only for pushes to `main`, after both matrix builds pass.
    Release Please either opens/updates a version PR or, when a version PR has
    been merged, creates the version tag and a draft GitHub Release. The job
@@ -47,6 +48,8 @@ deliberately when upgrading the actions.
 ## Conventional Commits and versions
 
 Use Conventional Commit messages for PR titles and commits:
+Subject text may start with an acronym such as LCD; all-uppercase subjects
+remain disallowed.
 
 | Commit | Version change |
 |---|---|
@@ -91,12 +94,13 @@ Before publishing a draft, validate the exact ZIPs from that draft:
    Windows, including plug-in discovery and the WebView2 runtime requirement.
 2. In supported DAWs, test MIDI playback with the editor both open and closed,
    timing, host project save/reopen, preset round-trips, sample loading, WAV
-   save, drag and clipboard. Check behavior after multiple instances, playback
+   save, sample import and clipboard paste. Check behavior after multiple instances, playback
    start/stop, editor reopen, and sample-rate or buffer-size changes.
 3. Address or explicitly accept the known limitations in
    [USER_GUIDE.md](USER_GUIDE.md#limitations-and-validation). In particular,
-   DAW parameter automation is not exposed, and drag and clipboard
-   compatibility with Ableton has not been verified. Native MIDI is handled
+   DAW parameter automation is not exposed. WAV paste has been reported working
+   in Ableton on macOS, but other hosts and Windows require validation; WAV
+   drag-out is not available. Native MIDI is handled
    sample-accurately in the audio processor and should work with the editor
    closed; confirm this in each DAW. A successful build is not sufficient
    evidence for these workflows.

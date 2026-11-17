@@ -3279,7 +3279,6 @@ input {
   min-width: 130px;
   color: var(--theme-accent-tertiary);
   border-color: var(--theme-accent-tertiary);
-  cursor: grab;
 }
 
 .topbar-menu-button {
@@ -3564,6 +3563,11 @@ input {
   font-weight: 700;
   background: linear-gradient(var(--theme-raised), color-mix(in srgb, var(--theme-raised) 70%, #000));
   box-shadow: inset 0 1px 0 #fff2;
+}
+
+.topbar-button.topbar-hit {
+  color: #141414;
+  background: linear-gradient(var(--theme-accent-secondary), var(--theme-accent));
 }
 
 .topbar-button:active:not(:disabled) {
