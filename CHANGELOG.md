@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/ultimumdesign/LayerForge/compare/v1.0.0...v1.1.0) (2026-11-19)
+
+
+### Features
+
+* expand sound design and output scope ([ee556c9](https://github.com/ultimumdesign/LayerForge/commit/ee556c9f9545279ba8108f287b1c09f991ab3652))
+
 ## [1.0.0](https://github.com/ultimumdesign/LayerForge/compare/v0.2.0...v1.0.0) (2026-11-17)
 
 
