@@ -2,6 +2,7 @@ import { Renderer as ElementaryRenderer } from '@elemaudio/core';
 import WebRenderer from '@elemaudio/web-renderer';
 import outputMonitorSource from './outputMonitorWorklet.js?raw';
 import { getDefaultSampleTrim } from './waveform.js';
+import { createBuiltinImpulses, IMPULSE_SAMPLE_RATE, resampleImpulse } from '../../dsp/convolution.js';
 
 function createNativeInstructionRemapper() {
   const mappedIds = new Map();
@@ -57,6 +58,8 @@ export class LayerForgeBridge {
     this.onStateRestored = null;
     this.stateRevision = 0;
     this.parameterUpdates = {};
+    this.parameterSequence = 0;
+    this.editorParameterSequences = new Map();
     this.suspendParameterUpdates = true;
     this.resumeOnRender = false;
     this.onMeter = null;
@@ -308,12 +311,19 @@ export class LayerForgeBridge {
     this.nativeMeterListener = (data) => this.onMeter?.(data);
     this.nativeParametersListener = (changes) => {
       if (this.suspendParameterUpdates) Object.assign(this.parameterUpdates, changes);
-      else Object.entries(changes).forEach(([id, value]) => this.onParameterChange?.(id, value));
+      else Object.entries(changes).forEach(([id, update]) => {
+        const value = typeof update === 'number' ? update : update.value;
+        const sequence = typeof update === 'number' ? 0 : update.sequence;
+        if (typeof update !== 'number' && update.revision < this.stateRevision) return;
+        if (sequence < (this.editorParameterSequences.get(id) ?? 0)) return;
+        this.onParameterChange?.(id, value);
+      });
     };
     this.nativeStateRestoredListener = ({ revision }) => {
       this.suspendParameterUpdates = true;
       this.resumeOnRender = false;
       this.parameterUpdates = {};
+      this.editorParameterSequences.clear();
       this.onStateRestored?.(revision);
     };
     this.nativeTraceListener = (data) => {
@@ -400,8 +410,11 @@ export class LayerForgeBridge {
       const node = await this.core.initialize(this.audioCtx, {
         numberOfInputs: 0,
         numberOfOutputs: 1,
-        outputChannelCount: [18]
+        outputChannelCount: [22]
       });
+      const impulses = Object.fromEntries(Object.entries(createBuiltinImpulses()).map(([key, samples]) =>
+        [key, resampleImpulse(samples, IMPULSE_SAMPLE_RATE, this.audioCtx.sampleRate)]));
+      await this.core.updateVirtualFileSystem(impulses);
       const workletUrl = URL.createObjectURL(new Blob([outputMonitorSource], { type: 'text/javascript' }));
       try {
         await this.audioCtx.audioWorklet.addModule(workletUrl);
@@ -411,7 +424,7 @@ export class LayerForgeBridge {
       this.outputMonitor = new AudioWorkletNode(this.audioCtx, 'layerforge-output-monitor', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
-        channelCount: 18,
+        channelCount: 22,
         channelCountMode: 'explicit',
         channelInterpretation: 'discrete',
         outputChannelCount: [2]
@@ -745,15 +758,18 @@ export class LayerForgeBridge {
   }
 
   setHostParameter(id, value) {
-    if (this.isNativePlugin && this.pluginStateLoaded && !this.suspendParameterUpdates)
-      window._postMessageToPluginBackend('parameterChange', { id, value, revision: this.stateRevision });
+    if (this.isNativePlugin && this.pluginStateLoaded && !this.suspendParameterUpdates) {
+      const sequence = ++this.parameterSequence;
+      this.editorParameterSequences.set(id, sequence);
+      window._postMessageToPluginBackend('parameterChange', { id, value, revision: this.stateRevision, sequence });
+    }
   }
 
   resumeParameterUpdates() {
     this.suspendParameterUpdates = false;
     const updates = this.parameterUpdates;
     this.parameterUpdates = {};
-    Object.entries(updates).forEach(([id, value]) => this.onParameterChange?.(id, value));
+    this.nativeParametersListener(updates);
   }
 
   async prepareNativeWav(blob, filename) {

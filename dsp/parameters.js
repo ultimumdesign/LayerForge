@@ -4,7 +4,11 @@
 
 export const LAYER_COUNT = 3;
 export const MIN_TRIM_RANGE = 0.01;
-export const DEFAULT_BUS_ORDER = Object.freeze(['noise', 'saturation', 'glue']);
+import { CONVOLVE_PROFILES } from './convolution.js';
+
+export const DEFAULT_BUS_ORDER = Object.freeze(['noise', 'ringMod', 'convolve', 'saturation', 'glue']);
+export const NOISE_TYPES = Object.freeze(['white', 'pink', 'brown']);
+export const SATURATION_TYPES = Object.freeze(['tape', 'tube', 'hard']);
 export const DEFAULT_ENVELOPE_POINTS = Object.freeze([
   Object.freeze({ time: 0, value: 1, curve: 0 }),
   Object.freeze({ time: 1, value: 1, curve: 0 })
@@ -56,7 +60,20 @@ export const PARAMETER_SCHEMA = [
   { id: 'master_glueRelease', name: 'Glue Release', min: 0.03, max: 0.6, default: 0.12, unit: 's' },
   { id: 'master_glueKnee', name: 'Glue Knee', min: 0, max: 24, default: 6, unit: 'dB' },
   { id: 'master_glueMix', name: 'Glue Dry/Wet', min: 0, max: 1, default: 1, unit: '' },
-  { id: 'master_glueGainDb', name: 'Glue Output', min: -24, max: 24, default: 0, unit: 'dB' }
+  { id: 'master_glueGainDb', name: 'Glue Output', min: -24, max: 24, default: 0, unit: 'dB' },
+  { id: 'noise_delayMs', name: 'Noise Playback Start Delay', min: 0, max: 1000, default: 0, unit: 'ms' },
+  { id: 'master_convolvePredelay', name: 'Convolve Predelay', min: 0, max: 200, default: 0, unit: 'ms' },
+  { id: 'master_convolveLowCut', name: 'Convolve Low Cut', min: 20, max: 2000, default: 20, unit: 'Hz' },
+  { id: 'master_convolveHighCut', name: 'Convolve High Cut', min: 800, max: 20000, default: 20000, unit: 'Hz' },
+  { id: 'master_convolveMix', name: 'Convolve Mix', min: 0, max: 1, default: 0.5, unit: '' },
+  { id: 'master_convolveGainDb', name: 'Convolve Output', min: -24, max: 24, default: 0, unit: 'dB' },
+  { id: 'master_ringModFrequency', name: 'Ring Mod Frequency', min: 0.1, max: 5000, default: 100, unit: 'Hz' },
+  { id: 'master_ringModMix', name: 'Ring Mod Dry/Wet', min: 0, max: 1, default: 1, unit: '' },
+  { id: 'master_ringModGainDb', name: 'Ring Mod Output', min: -24, max: 24, default: 0, unit: 'dB' },
+  { id: 'master_ringModPhase', name: 'Ring Mod Phase', min: 0, max: 360, default: 0, unit: 'deg' },
+  { id: 'master_ringModBias', name: 'Ring Mod Bias', min: 0, max: 1, default: 0, unit: '' },
+  { id: 'master_ringModRectify', name: 'Ring Mod Rectify', min: -1, max: 1, default: 0, unit: '' },
+  { id: 'master_ringModSpread', name: 'Ring Mod Spread', min: 0, max: 1, default: 0, unit: '' }
 ];
 
 export function createDefaultLayer(label) {
@@ -297,17 +314,28 @@ export function restorePatchState(saved, sampleBuffers = {}) {
 
   const savedNoise = saved.noise && typeof saved.noise === 'object' ? saved.noise : {};
   const savedMaster = saved.master && typeof saved.master === 'object' ? saved.master : {};
+  const oldOrder = ['noise', 'saturation', 'glue'];
+  const savedOrder = savedMaster.busOrder;
+  const convolveOrder = Array.isArray(savedOrder) && savedOrder.length === oldOrder.length &&
+    oldOrder.every((id) => savedOrder.includes(id))
+    ? savedOrder.flatMap((id) => id === 'noise' ? [id, 'convolve'] : [id]) : savedOrder;
+  const previousOrder = ['noise', 'convolve', 'saturation', 'glue'];
+  const migratedOrder = Array.isArray(convolveOrder) && convolveOrder.length === previousOrder.length &&
+    previousOrder.every((id) => convolveOrder.includes(id))
+    ? convolveOrder.flatMap((id) => id === 'noise' ? [id, 'ringMod'] : [id]) : convolveOrder;
   return {
     gate: 0,
     velocity: 1,
     layers,
     noise: {
       enabled: typeof savedNoise.enabled === 'boolean' ? savedNoise.enabled : Boolean(saved.noise),
+      type: NOISE_TYPES.includes(savedNoise.type) ? savedNoise.type : defaults.noise.type,
       mute: typeof savedNoise.mute === 'boolean' ? savedNoise.mute : defaults.noise.mute,
       solo: typeof savedNoise.solo === 'boolean' ? savedNoise.solo : defaults.noise.solo,
       cutoff: boundedNumber(savedNoise.cutoff, defaults.noise.cutoff, 20, 20000),
       q: boundedNumber(savedNoise.q, defaults.noise.q, 0.1, 30),
       decay: boundedNumber(savedNoise.decay, defaults.noise.decay, 0.002, 3),
+      delayMs: boundedNumber(savedNoise.delayMs, defaults.noise.delayMs, 0, 1000),
       clipDrive: boundedNumber(savedNoise.clipDrive, defaults.noise.clipDrive, 0, 36),
       gain: boundedNumber(savedNoise.gain, defaults.noise.gain, 0, 2),
       ...sanitizeTrimRange(savedNoise.trimStart, savedNoise.trimEnd),
@@ -319,16 +347,38 @@ export function restorePatchState(saved, sampleBuffers = {}) {
       hardness: boundedNumber(savedMaster.hardness, defaults.master.hardness, 0, 1),
       ceiling: boundedNumber(savedMaster.ceiling, defaults.master.ceiling, 0.1, 1),
       outputDb: boundedNumber(savedMaster.outputDb, defaults.master.outputDb, -60, 12),
-      busOrder: Array.isArray(savedMaster.busOrder) &&
-        savedMaster.busOrder.length === DEFAULT_BUS_ORDER.length &&
-        DEFAULT_BUS_ORDER.every((id) => savedMaster.busOrder.includes(id))
-        ? [...savedMaster.busOrder] : [...DEFAULT_BUS_ORDER],
+      busOrder: Array.isArray(migratedOrder) &&
+        migratedOrder.length === DEFAULT_BUS_ORDER.length &&
+        DEFAULT_BUS_ORDER.every((id) => migratedOrder.includes(id))
+        ? [...migratedOrder] : [...DEFAULT_BUS_ORDER],
+      convolveEnabled: typeof savedMaster.convolveEnabled === 'boolean' ? savedMaster.convolveEnabled : false,
+      convolveMute: typeof savedMaster.convolveMute === 'boolean' ? savedMaster.convolveMute : false,
+      convolveProfile: CONVOLVE_PROFILES.includes(savedMaster.convolveProfile)
+        ? savedMaster.convolveProfile : 'room',
+      convolvePredelay: boundedNumber(savedMaster.convolvePredelay, 0, 0, 200),
+      convolveLowCut: boundedNumber(savedMaster.convolveLowCut, 20, 20, 2000),
+      convolveHighCut: boundedNumber(savedMaster.convolveHighCut, 20000, 800, 20000),
+      convolveMix: boundedNumber(savedMaster.convolveMix, 0.5, 0, 1),
+      convolveGainDb: boundedNumber(savedMaster.convolveGainDb, 0, -24, 24),
+      ringModEnabled: typeof savedMaster.ringModEnabled === 'boolean' ? savedMaster.ringModEnabled : false,
+      ringModMute: typeof savedMaster.ringModMute === 'boolean' ? savedMaster.ringModMute : false,
+      ringModFrequency: boundedNumber(savedMaster.ringModFrequency, defaults.master.ringModFrequency, 0.1, 5000),
+      ringModMix: boundedNumber(savedMaster.ringModMix, defaults.master.ringModMix, 0, 1),
+      ringModGainDb: boundedNumber(savedMaster.ringModGainDb, defaults.master.ringModGainDb, -24, 24),
+      ringModPhase: boundedNumber(savedMaster.ringModPhase, defaults.master.ringModPhase, 0, 360),
+      ringModBias: boundedNumber(savedMaster.ringModBias, defaults.master.ringModBias, 0, 1),
+      ringModRectify: boundedNumber(savedMaster.ringModRectify, defaults.master.ringModRectify, -1, 1),
+      ringModSpread: boundedNumber(savedMaster.ringModSpread, defaults.master.ringModSpread, 0, 1),
       saturationEnabled: typeof savedMaster.saturationEnabled === 'boolean' ? savedMaster.saturationEnabled :
         typeof savedNoise.saturationEnabled === 'boolean' ? savedNoise.saturationEnabled : defaults.master.saturationEnabled,
+      saturationMute: typeof savedMaster.saturationMute === 'boolean' ? savedMaster.saturationMute : defaults.master.saturationMute,
+      saturationType: SATURATION_TYPES.includes(savedMaster.saturationType)
+        ? savedMaster.saturationType : defaults.master.saturationType,
       saturationDrive: boundedNumber(savedMaster.saturationDrive ?? savedNoise.saturationDrive, defaults.master.saturationDrive, 0, 24),
       saturationMix: boundedNumber(savedMaster.saturationMix ?? savedNoise.saturationMix, defaults.master.saturationMix, 0, 1),
       saturationGainDb: boundedNumber(savedMaster.saturationGainDb, defaults.master.saturationGainDb, -24, 24),
       glueEnabled: typeof savedMaster.glueEnabled === 'boolean' ? savedMaster.glueEnabled : defaults.master.glueEnabled,
+      glueMute: typeof savedMaster.glueMute === 'boolean' ? savedMaster.glueMute : defaults.master.glueMute,
       glueThreshold: boundedNumber(savedMaster.glueThreshold, defaults.master.glueThreshold, -36, 0),
       glueRatio: boundedNumber(savedMaster.glueRatio, defaults.master.glueRatio, 1, 8),
       glueAttack: boundedNumber(savedMaster.glueAttack, defaults.master.glueAttack, 0.001, 0.1),
@@ -351,11 +401,13 @@ export function createDefaultState() {
     ],
     noise: {
       enabled: false,
+      type: 'white',
       mute: false,
       solo: false,
       cutoff: 4800,
       q: 1.4,
       decay: 0.075,
+      delayMs: 0,
       clipDrive: 3.0,
       gain: 0.22,
       trimStart: 0,
@@ -368,11 +420,31 @@ export function createDefaultState() {
       ceiling: 0.95,
       outputDb: 0,
       busOrder: [...DEFAULT_BUS_ORDER],
+      convolveEnabled: false,
+      convolveMute: false,
+      convolveProfile: 'room',
+      convolvePredelay: 0,
+      convolveLowCut: 20,
+      convolveHighCut: 20000,
+      convolveMix: 0.5,
+      convolveGainDb: 0,
+      ringModEnabled: false,
+      ringModMute: false,
+      ringModFrequency: 100,
+      ringModMix: 1,
+      ringModGainDb: 0,
+      ringModPhase: 0,
+      ringModBias: 0,
+      ringModRectify: 0,
+      ringModSpread: 0,
       saturationEnabled: false,
+      saturationMute: false,
+      saturationType: 'tape',
       saturationDrive: 6,
       saturationMix: 1,
       saturationGainDb: 0,
       glueEnabled: false,
+      glueMute: false,
       glueThreshold: -12,
       glueRatio: 2,
       glueAttack: 0.01,
@@ -385,8 +457,10 @@ export function createDefaultState() {
 }
 
 const BUS_MODULE_KNOBS = {
-  noise: ['cutoff', 'q', 'decay', 'clipDrive', 'gain'],
-  saturation: ['saturationDrive', 'saturationMix', 'saturationGainDb'],
+  noise: ['type', 'cutoff', 'q', 'decay', 'delayMs', 'clipDrive', 'gain'],
+  convolve: ['convolveProfile', 'convolvePredelay', 'convolveLowCut', 'convolveHighCut', 'convolveMix', 'convolveGainDb'],
+  ringMod: ['ringModFrequency', 'ringModPhase', 'ringModBias', 'ringModRectify', 'ringModSpread', 'ringModMix', 'ringModGainDb'],
+  saturation: ['saturationType', 'saturationDrive', 'saturationMix', 'saturationGainDb'],
   glue: [
     'glueThreshold', 'glueRatio', 'glueAttack', 'glueRelease', 'glueKnee',
     'glueMix', 'glueGainDb'

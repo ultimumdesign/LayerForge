@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   createDefaultState,
+  DEFAULT_ENVELOPE_POINTS,
+  isDefaultEnvelope,
+  NOISE_TYPES,
   PARAMETER_SCHEMA,
+  SATURATION_TYPES,
   resetBusModuleKnobs,
   resetLayerKnobs,
   restorePatchState,
@@ -9,28 +13,32 @@ import {
   swapLayerSamples
 } from '@dsp/parameters.js';
 import { buildDrumGraph } from '@dsp/engine.js';
+import { CONVOLVE_PROFILES } from '@dsp/convolution.js';
 import { LayerForgeBridge } from './audio/bridge.js';
 import { downloadWav, getPatchDurationSec, renderWavBlob, renderWaveformPreview } from './audio/wavExport.js';
-import { getLayerPlaybackInfo } from './audio/waveform.js';
+import { getLayerPlaybackInfo, getPlayableSourceDurationSec } from './audio/waveform.js';
 import { LiveComparisonTrace } from './audio/liveTrace.js';
 import { getDiagnostics, subscribeDiagnostics } from './audio/diagnostics.js';
 import { ChannelStrip } from './components/ChannelStrip.jsx';
 import { NoiseWaveform } from './components/NoiseWaveform.jsx';
+import { PlayDelayControl } from './components/WaveformViewer.jsx';
 import { DiagnosticsPanel } from './components/DiagnosticsPanel.jsx';
 import { LayerSumViewer } from './components/LayerSumViewer.jsx';
 import { OutputMeter } from './components/OutputMeter.jsx';
 import { EffectMeters } from './components/EffectMeters.jsx';
 import { GearIcon } from './components/GearIcon.jsx';
 import { RotaryKnob } from './components/RotaryKnob.jsx';
-import { HelpEnabledContext } from './components/HelpTip.jsx';
+import { DspInfoContext, DspInfoScreen, HelpEnabledContext } from './components/HelpTip.jsx';
+import { AuditionCloseButton, HitButton } from './components/HitButton.jsx';
 import { PresetBar } from './components/PresetBar.jsx';
 import { SystemMenu } from './components/SystemMenu.jsx';
 import { INSTAGRAM_URL } from './links.js';
+import { createPatchHistory, getHistoryShortcut } from './patchHistory.js';
 import { BORDER_TRACE_LEVELS, BORDER_TRACE_SPEEDS, getBorderTraceSettings, getUiTheme, UI_THEMES } from './uiThemes.js';
 import { version } from '../package.json';
 
 const EMPTY_SAMPLE_MAP = Object.freeze({});
-const BUS_MODULE_LABELS = { noise: 'Noise synth', saturation: 'Saturation', glue: 'Glue compressor' };
+const BUS_MODULE_LABELS = { noise: 'Noise synth', convolve: 'Convolution', saturation: 'Saturation', glue: 'Glue compressor', ringMod: 'Ring modulation' };
 const INITIAL_PATCH_JSON = JSON.stringify(serializePatchState(createDefaultState()));
 // JUCE round-trips host parameters through normalized 32-bit floats.
 const PARAMETER_TOLERANCES = new Map(PARAMETER_SCHEMA.map(({ id, min, max }) => {
@@ -85,9 +93,16 @@ export function reorderBusModules(order, source, target) {
 export function observeNativeEditorHeight(element, notify) {
   let timer = 0;
   let lastHeight = 0;
+  const originalZoom = element.style.zoom;
+  const updateScale = () => {
+    const scale = Math.min(1, window.innerWidth / 1120);
+    element.style.zoom = String(scale);
+    element.style.setProperty('--native-editor-scale', String(scale));
+    return scale;
+  };
   const update = () => {
     timer = 0;
-    const height = Math.ceil(element.getBoundingClientRect().height);
+    const height = Math.ceil(element.offsetHeight * updateScale());
     if (height > 0 && height !== lastHeight) {
       lastHeight = height;
       notify(height);
@@ -98,17 +113,21 @@ export function observeNativeEditorHeight(element, notify) {
     timer = window.setTimeout(update, 120);
   };
   const onResize = () => {
+    updateScale();
     lastHeight = 0;
     schedule();
   };
   const observer = new ResizeObserver(schedule);
   observer.observe(element);
   window.addEventListener('resize', onResize);
+  updateScale();
   schedule();
   return () => {
     observer.disconnect();
     window.removeEventListener('resize', onResize);
     window.clearTimeout(timer);
+    element.style.zoom = originalZoom;
+    element.style.removeProperty('--native-editor-scale');
   };
 }
 
@@ -132,6 +151,26 @@ function getStoredBorderTrace() {
   } catch (error) {
     console.error('[LayerForge] Could not restore border tracing settings:', error);
     return getBorderTraceSettings();
+  }
+}
+
+export function getHelpSettings(saved) {
+  return {
+    hover: typeof saved?.hover === 'boolean' ? saved.hover : false,
+    dspInfo: typeof saved?.dspInfo === 'boolean' ? saved.dspInfo : true
+  };
+}
+
+function getStoredHelpSettings() {
+  if (typeof window === 'undefined' || window.__JUCE__) return getHelpSettings();
+  try {
+    return getHelpSettings({
+      hover: window.localStorage.getItem('layerforge-hover-help') === 'on',
+      dspInfo: window.localStorage.getItem('layerforge-dsp-info') !== 'off'
+    });
+  } catch (error) {
+    console.error('[LayerForge] Could not restore help settings:', error);
+    return getHelpSettings();
   }
 }
 
@@ -183,14 +222,14 @@ export function WavCopyButton({ ready, exporting, status, helpEnabled, onCopy })
       onClick={onCopy}
       disabled={!ready || exporting}
       aria-live="polite"
-      title={helpEnabled ? 'Copy the prepared WAV, then paste it in your DAW. Prepare a WAV first.' : undefined}
+      title={helpEnabled ? 'COPY WAV: Prepare a WAV, then click to copy.' : undefined}
     >
       {ready ? status || 'COPY WAV' : 'COPY WAV'}
     </button>
   );
 }
 
-function ModuleSettingsDialog({ title, onClose, onReset, children }) {
+export function ModuleSettingsDialog({ title, onClose, onHit, triggered, children }) {
   const handleKeyDown = (event) => {
     if (event.target.closest('[role="dialog"]') !== event.currentTarget || event.defaultPrevented) return;
     if (event.key === 'Escape') {
@@ -221,13 +260,41 @@ function ModuleSettingsDialog({ title, onClose, onReset, children }) {
         <header className="waveform-editor-dialog-header">
           <strong>{title} SETTINGS</strong>
           <div className="module-settings-actions">
-            <button type="button" className="waveform-editor-close" onClick={onReset}
-              aria-label={`Reset ${title.toLowerCase()} knobs to defaults`}>RESET KNOBS</button>
-            <button type="button" className="waveform-editor-close" onClick={onClose} autoFocus>CLOSE</button>
+            <HitButton triggered={triggered} onHit={onHit} autoFocus />
+            <AuditionCloseButton onClose={onClose} onHit={onHit} />
           </div>
         </header>
         {children}
+        <DspInfoScreen />
       </section>
+    </div>
+  );
+}
+
+export function ModuleControls({ name, muted, onMute, onReset, noise, onNoiseChange }) {
+  return (
+    <div className="strip-actions module-control-bar">
+      <div className="strip-utility-actions" role="group" aria-label={`${name} editing controls`}>
+        {noise && <button type="button" className="action-btn action-btn-utility"
+          data-dsp-label="RESET ENVELOPE" data-dsp-help="Resets the noise gain envelope to a flat full-level shape."
+          aria-label="Reset noise gain envelope" disabled={isDefaultEnvelope(noise.envelopePoints)}
+          onClick={() => onNoiseChange({ envelopePoints: DEFAULT_ENVELOPE_POINTS.map((point) => ({ ...point })) })}>RESET ENV</button>}
+        <button type="button" className="action-btn action-btn-utility"
+          data-dsp-label="RESET KNOBS" data-dsp-help="Restores this module's knobs to their defaults after confirmation."
+          aria-label={`Reset ${name} knobs to defaults`} onClick={onReset}>RESET KNOBS</button>
+      </div>
+      <div className="strip-toggles" role="group" aria-label={`${name} ${noise ? 'mute and solo' : 'mute'}`}>
+        <button type="button" className={`mini-btn ${muted ? 'active-mute' : ''}`}
+          data-dsp-label="MUTE"
+          data-dsp-help={noise ? 'Silences the noise synth without changing its settings.' : 'Bypasses this effect without changing its settings.'}
+          aria-label={`Mute ${name}`} aria-pressed={muted} onClick={onMute}>M</button>
+        {noise && <button type="button" className={`mini-btn ${noise.solo ? 'active-solo' : ''}`}
+          data-dsp-label="SOLO" data-dsp-help="Auditions soloed noise and channels while excluding other sources."
+          aria-label="Solo noise synth" aria-pressed={noise.solo}
+          onClick={() => onNoiseChange({ solo: !noise.solo })}>S</button>}
+      </div>
+      {noise && <PlayDelayControl title="NOISE" value={noise.delayMs}
+        onChange={(delayMs) => onNoiseChange({ delayMs })} />}
     </div>
   );
 }
@@ -246,6 +313,23 @@ export default function App() {
   const [themeId, setThemeId] = useState(getStoredThemeId);
   const [borderTrace, setBorderTrace] = useState(getStoredBorderTrace);
   const [state, setState] = useState(() => createDefaultState());
+  const stateRef = useRef(state);
+  const historyRef = useRef(createPatchHistory());
+  const historyGestureRef = useRef(null);
+  const historySuspendedRef = useRef(false);
+  const sampleLoadingRef = useRef(0);
+  const updateState = useCallback((update) => {
+    const next = typeof update === 'function' ? update(stateRef.current) : update;
+    stateRef.current = next;
+    setState(next);
+  }, []);
+  const editState = (update) => {
+    const before = stateRef.current;
+    const next = update(before);
+    if (!historySuspendedRef.current && !sampleLoadingRef.current)
+      historyRef.current.record(before, next, historyGestureRef.current);
+    updateState(next);
+  };
   const [patchBaseline, setPatchBaseline] = useState(() => serializePatchState(createDefaultState()));
   const patchBaselineRef = useRef(patchBaseline);
   patchBaselineRef.current = patchBaseline;
@@ -254,12 +338,15 @@ export default function App() {
   const [diagnostics, setDiagnostics] = useState(getDiagnostics);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [sumExpanded, setSumExpanded] = useState(false);
   const [moduleSettings, setModuleSettings] = useState(null);
   const [draggingBusModule, setDraggingBusModule] = useState(null);
   const [busDropTarget, setBusDropTarget] = useState(null);
   const [busOrderAnnouncement, setBusOrderAnnouncement] = useState('');
   const [resetTarget, setResetTarget] = useState(null);
-  const [helpEnabled, setHelpEnabled] = useState(true);
+  const [helpSettings, setHelpSettings] = useState(getStoredHelpSettings);
+  const [dspInfo, setDspInfo] = useState(null);
+  const helpEnabled = helpSettings.hover;
   const [exporting, setExporting] = useState(false);
   const [renderedLayerSum, setRenderedLayerSum] = useState(null);
   const [sumPreviewStatus, setSumPreviewStatus] = useState('QUEUED');
@@ -295,6 +382,8 @@ export default function App() {
   selectedPresetRef.current = selectedPreset;
   const borderTraceRef = useRef(borderTrace);
   borderTraceRef.current = borderTrace;
+  const helpSettingsRef = useRef(helpSettings);
+  helpSettingsRef.current = helpSettings;
   const updatePatchBaseline = useCallback((baseline) => {
     patchBaselineRef.current = baseline;
     setPatchBaseline(baseline);
@@ -303,6 +392,7 @@ export default function App() {
   const snapshotPatchState = () => ({
     ...JSON.parse(patchStateRef.current),
     uiBorderTrace: borderTraceRef.current,
+    uiHelpSettings: helpSettingsRef.current,
     loadedPreset: selectedPresetRef.current,
     savedPatchBaseline: patchBaselineRef.current
   });
@@ -334,11 +424,13 @@ export default function App() {
 
   useEffect(() => {
     if ((moduleSettings === 'noise' && !state.noise.enabled) ||
+        (moduleSettings === 'convolve' && !state.master.convolveEnabled) ||
         (moduleSettings === 'saturation' && !state.master.saturationEnabled) ||
-        (moduleSettings === 'glue' && !state.master.glueEnabled)) {
+        (moduleSettings === 'glue' && !state.master.glueEnabled) ||
+        (moduleSettings === 'ringMod' && !state.master.ringModEnabled)) {
       setModuleSettings(null);
     }
-  }, [moduleSettings, state.noise.enabled, state.master.saturationEnabled, state.master.glueEnabled]);
+  }, [moduleSettings, state.noise.enabled, state.master.convolveEnabled, state.master.saturationEnabled, state.master.glueEnabled, state.master.ringModEnabled]);
 
   useEffect(() => {
     if (!isNativePlugin) return undefined;
@@ -369,6 +461,16 @@ export default function App() {
       console.error('[LayerForge] Could not save border tracing settings:', error);
     }
   }, [isNativePlugin, borderTrace]);
+
+  useEffect(() => {
+    if (isNativePlugin) return;
+    try {
+      window.localStorage.setItem('layerforge-hover-help', helpSettings.hover ? 'on' : 'off');
+      window.localStorage.setItem('layerforge-dsp-info', helpSettings.dspInfo ? 'on' : 'off');
+    } catch (error) {
+      console.error('[LayerForge] Could not save help settings:', error);
+    }
+  }, [isNativePlugin, helpSettings]);
 
   useEffect(() => {
     if (!showAbout) return undefined;
@@ -454,12 +556,18 @@ export default function App() {
       setTimeout(() => setTriggered(false), 28);
       return;
     }
-    setState((s) => ({ ...s, gate: 1, velocity }));
+    updateState((s) => ({ ...s, gate: 1, velocity }));
     setTimeout(() => {
-      setState((s) => ({ ...s, gate: 0 }));
+      updateState((s) => ({ ...s, gate: 0 }));
       setTriggered(false);
     }, 28);
-  }, []);
+  }, [updateState]);
+
+  const handleHitButton = () => {
+    triggerHit(1.0).catch((error) => {
+      console.error('[LayerForge] Could not trigger a hit:', error);
+    });
+  };
 
   useEffect(() => {
     const bridge = new LayerForgeBridge();
@@ -482,6 +590,8 @@ export default function App() {
       onStateRestored: async (revision) => {
         requestedRevision = Math.max(requestedRevision, revision);
         patchGenerationRef.current += 1;
+        historyRef.current.clear();
+        historySuspendedRef.current = true;
         if (pendingPresetSaveRef.current) {
           window.clearTimeout(pendingPresetSaveRef.current.timeout);
           setPresetStatus('PRESET SAVE UNCONFIRMED');
@@ -500,9 +610,10 @@ export default function App() {
           } while (active && bridge.stateRevision < requestedRevision);
           if (!active) return;
           bridge.resumeOnRender = true;
-          setState(restorePatchState(patch, bridge.vfsBuffers));
+          updateState(restorePatchState(patch, bridge.vfsBuffers));
           setThemeId(getUiTheme(patch?.uiTheme).id);
           setBorderTrace(getBorderTraceSettings(patch?.uiBorderTrace));
+          setHelpSettings(getHelpSettings(patch?.uiHelpSettings));
           setSelectedPreset(typeof patch?.loadedPreset === 'string' ? patch.loadedPreset : '');
           updatePatchBaseline(patch?.savedPatchBaseline ??
             (patch?.loadedPreset ? null : JSON.parse(INITIAL_PATCH_JSON)));
@@ -513,39 +624,35 @@ export default function App() {
           console.error('[LayerForge] Could not restore host state:', error);
         } finally {
           restoring = false;
+          historySuspendedRef.current = false;
         }
       },
       onParameterChange: (paramId, value) => {
         if (!active) return;
-        // Maps DAW automation parameter IDs back into React state
-        if (paramId.startsWith('l')) {
-          const match = paramId.match(/^l(\d+)_(.+)$/);
-          if (match) {
-            const idx = Number(match[1]);
-            const key = match[2];
-            setState((s) => ({
-              ...s,
-              layers: s.layers.map((l, i) => (i === idx ? { ...l, [key]: value } : l))
-            }));
-          }
-        } else if (paramId.startsWith('noise_')) {
-          const key = paramId.replace('noise_', '');
-          setState((s) => ({ ...s, noise: { ...s.noise, [key]: value } }));
-        } else if (paramId.startsWith('master_')) {
-          const key = paramId.replace('master_', '');
-          setState((s) => ({ ...s, master: { ...s.master, [key]: value } }));
-        }
+        const parameter = PARAMETER_SCHEMA.find(({ id }) => id === paramId);
+        if (!parameter) return;
+        const [section, key] = paramId.split('_');
+        const index = section.startsWith('l') ? Number(section.slice(1)) : null;
+        const path = index === null ? [section, key] : ['layers', index, key];
+        const current = index === null ? stateRef.current[section][key] : stateRef.current.layers[index][key];
+        if (Math.abs(current - value) > (parameter.max - parameter.min) * 2e-7)
+          historyRef.current.invalidate(path);
+        updateState((s) => index === null
+          ? { ...s, [section]: { ...s[section], [key]: value } }
+          : { ...s, layers: s.layers.map((layer, i) => i === index ? { ...layer, [key]: value } : layer) });
       }
     });
     initialization.then(async () => {
       if (!active) return;
       if (!restoring) bridge.resumeOnRender = true;
-      setState(restorePatchState(bridge.restoredPluginState, bridge.vfsBuffers));
+      historyRef.current.clear();
+      updateState(restorePatchState(bridge.restoredPluginState, bridge.vfsBuffers));
       if (bridge.isNativePlugin) {
         updatePatchBaseline(bridge.restoredPluginState?.savedPatchBaseline ??
           (bridge.restoredPluginState?.loadedPreset ? null : JSON.parse(INITIAL_PATCH_JSON)));
         setThemeId(getUiTheme(bridge.restoredPluginState?.uiTheme).id);
         setBorderTrace(getBorderTraceSettings(bridge.restoredPluginState?.uiBorderTrace));
+        setHelpSettings(getHelpSettings(bridge.restoredPluginState?.uiHelpSettings));
         const loadedPreset = bridge.restoredPluginState?.loadedPreset;
         if (typeof loadedPreset === 'string') setSelectedPreset(loadedPreset);
       }
@@ -566,7 +673,7 @@ export default function App() {
         });
       }
     };
-  }, [refreshPresetLibrary, triggerHit, updatePatchBaseline]);
+  }, [refreshPresetLibrary, triggerHit, updatePatchBaseline, updateState]);
 
   useEffect(() => {
     const bridge = bridgeRef.current;
@@ -584,7 +691,7 @@ export default function App() {
     } catch (error) {
       console.error('[LayerForge] Could not save the patch state:', error);
     }
-  }, [isNativePlugin, patchStateJson, selectedPreset, pluginStateLoaded, borderTrace, patchBaseline]);
+  }, [isNativePlugin, patchStateJson, selectedPreset, pluginStateLoaded, borderTrace, helpSettings, patchBaseline]);
 
   useEffect(() => {
     const flushPatchState = () => {
@@ -630,7 +737,8 @@ export default function App() {
       : 'RENDERING';
   const traceDurationRef = useRef(visibleLayerSum.durationSec);
   traceDurationRef.current = visibleLayerSum.durationSec || 0.14;
-  const channelWaveforms = visibleLayerSum.comparison?.layers;
+  const channelWaveforms = visibleLayerSum.comparison?.channelPreviews;
+  const channelDurations = visibleLayerSum.comparison?.layerDurations;
   useEffect(() => {
     if (!traceEnabled) return undefined;
     const collector = new LiveComparisonTrace(() => traceDurationRef.current, isNativePlugin);
@@ -660,20 +768,22 @@ export default function App() {
     id: playbackId
   }));
   const hasSolo = state.layers.some((layer) => layer.solo) || (state.noise.enabled && state.noise.solo);
-  if (
+  const noiseAudible =
     state.noise.enabled && state.noise.gain > 0.0005 &&
     !state.noise.mute &&
-    (!hasSolo || state.noise.solo)
-  ) {
+    (!hasSolo || state.noise.solo);
+  if (noiseAudible) {
     const durationSec = state.noise.decay + 0.016;
+    const delaySec = Math.max(0, state.noise.delayMs ?? 0) / 1000;
     sumPlaybackTracks.push({
       id: playbackId,
       color: theme.accentTertiary,
-      delaySec: 0,
+      delaySec,
       durationSec,
-      endTimeSec: durationSec
+      endTimeSec: delaySec + durationSec
     });
   }
+  const sourceDurationSec = getPlayableSourceDurationSec(state, audiblePlaybackTracks);
 
   useEffect(() => {
     const queue = sumRenderQueueRef.current;
@@ -736,11 +846,50 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [triggerHit]);
 
+  useEffect(() => {
+    const begin = () => { historyGestureRef.current = Symbol('pointer gesture'); };
+    const end = () => { historyGestureRef.current = null; };
+    window.addEventListener('pointerdown', begin, true);
+    window.addEventListener('pointerup', end, true);
+    window.addEventListener('pointercancel', end, true);
+    return () => {
+      window.removeEventListener('pointerdown', begin, true);
+      window.removeEventListener('pointerup', end, true);
+      window.removeEventListener('pointercancel', end, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const shortcut = getHistoryShortcut(event);
+      if (!shortcut) return;
+      event.preventDefault();
+      if (!pluginStateLoaded || historySuspendedRef.current || sampleLoadingRef.current ||
+          presetLoadingRef.current || pendingPresetSaveRef.current || exporting ||
+          presetStatus === 'SAVING PRESET...') return;
+      historyGestureRef.current = null;
+      const before = stateRef.current;
+      const next = historyRef.current[shortcut](before);
+      if (!next) return;
+      for (const { id } of PARAMETER_SCHEMA) {
+        const [section, key] = id.split('_');
+        const index = section.startsWith('l') ? Number(section.slice(1)) : null;
+        const previous = index === null ? before[section][key] : before.layers[index][key];
+        const value = index === null ? next[section][key] : next.layers[index][key];
+        if (previous !== value)
+          bridgeRef.current?.setHostParameter(id, value);
+      }
+      updateState(next);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [exporting, pluginStateLoaded, presetStatus, updateState]);
+
   const updateLayer = (idx, patch) => {
     for (const [key, value] of Object.entries(patch))
       if (PARAMETER_SCHEMA.some((parameter) => parameter.id === `l${idx}_${key}`))
         bridgeRef.current?.setHostParameter(`l${idx}_${key}`, value);
-    setState((s) => ({
+    editState((s) => ({
       ...s,
       layers: s.layers.map((l, i) => (i === idx ? { ...l, ...patch } : l))
     }));
@@ -750,7 +899,7 @@ export default function App() {
     for (const [key, value] of Object.entries(changes))
       if (PARAMETER_SCHEMA.some((parameter) => parameter.id === `${section}_${key}`))
         bridgeRef.current?.setHostParameter(`${section}_${key}`, value);
-    setState((s) => ({ ...s, [section]: { ...s[section], ...changes } }));
+    editState((s) => ({ ...s, [section]: { ...s[section], ...changes } }));
   };
 
   const sendPatchParameters = (patch, prefix = '') => {
@@ -767,6 +916,8 @@ export default function App() {
     if (!bridgeRef.current) return;
     const generation = patchGenerationRef.current;
     let info;
+    sampleLoadingRef.current += 1;
+    historyRef.current.clear();
     try {
       if (bridgeRef.current.isNativePlugin) {
         bridgeRef.current.saveNativePluginState(snapshotPatchState());
@@ -776,10 +927,14 @@ export default function App() {
       console.error(`[LayerForge] Could not load sample "${file.name}":`, error);
       alert(`Could not load "${file.name}": ${error.message}`);
       return;
+    } finally {
+      sampleLoadingRef.current -= 1;
+      historyRef.current.clear();
     }
     if (generation !== patchGenerationRef.current) return;
 
-    updateLayer(idx, {
+    updateState((current) => ({ ...current, layers: current.layers.map((layer, index) => index !== idx ? layer : ({
+      ...layer,
       name: info.name,
       sourceName: info.sourceName,
       sourceLocation: info.sourceLocation,
@@ -790,7 +945,7 @@ export default function App() {
       loaded: true,
       trimStart: info.trimStart,
       trimEnd: info.trimEnd
-    });
+    })) }));
     triggerHit(1.0).catch((error) => {
       console.error('[LayerForge] Could not audition the loaded sample:', error);
     });
@@ -943,7 +1098,7 @@ export default function App() {
         throw new Error('The patch changed while preparing the preset. Save again.');
       }
       patchStateRef.current = JSON.stringify({ ...patch, uiTheme: themeId });
-      setState((current) => ({
+      updateState((current) => ({
         ...current,
         layers: current.layers.map((layer, index) => ({
           ...layer, sourceLocation: patch.layers[index].sourceLocation
@@ -1006,7 +1161,8 @@ export default function App() {
       patchStateRef.current = JSON.stringify({ ...serializePatchState(restored), uiTheme: currentTheme });
       updatePatchBaseline(serializePatchState(restored));
       bridge.saveNativePluginState({ ...snapshotPatchState(), loadedPreset: filename });
-      setState(restored);
+      historyRef.current.clear();
+      updateState(restored);
       setSelectedPreset(filename);
       setPresetStatus('PRESET LOADED');
       loaded = true;
@@ -1052,11 +1208,12 @@ export default function App() {
 
   const initializePatch = () => {
     patchGenerationRef.current += 1;
+    historyRef.current.clear();
     const initialized = createDefaultState();
     sendPatchParameters(initialized);
     patchStateRef.current = JSON.stringify({ ...serializePatchState(initialized), uiTheme: themeId });
     updatePatchBaseline(serializePatchState(initialized));
-    setState(initialized);
+    updateState(initialized);
     setTrace(null);
     setSelectedPreset('');
     setPresetStatus('');
@@ -1070,7 +1227,7 @@ export default function App() {
       const index = resetTarget.index;
       sendPatchParameters({ ...state, layers: state.layers.map((layer, i) =>
         i === index ? resetLayerKnobs(layer) : layer) }, `l${index}_`);
-      setState((current) => ({
+      editState((current) => ({
         ...current,
         layers: current.layers.map((layer, layerIndex) =>
           layerIndex === index ? resetLayerKnobs(layer) : layer)
@@ -1078,7 +1235,7 @@ export default function App() {
     } else if (resetTarget?.kind === 'module') {
       sendPatchParameters(resetBusModuleKnobs(state, resetTarget.module),
         resetTarget.module === 'noise' ? 'noise_' : `master_${resetTarget.module}`);
-      setState((current) => resetBusModuleKnobs(current, resetTarget.module));
+      editState((current) => resetBusModuleKnobs(current, resetTarget.module));
     } else if (resetTarget?.kind === 'patch' && !presetLoadingRef.current && !exporting &&
                presetStatus !== 'SAVING PRESET...') {
       initializePatch();
@@ -1091,7 +1248,7 @@ export default function App() {
   const moveBusModule = (source, target, restoreFocus = false) => {
     const next = reorderBusModules(state.master.busOrder, source, target);
     if (next === state.master.busOrder) return;
-    setState((current) => ({
+    editState((current) => ({
       ...current,
       master: { ...current.master, busOrder: reorderBusModules(current.master.busOrder, source, target) }
     }));
@@ -1129,7 +1286,7 @@ export default function App() {
         ref={(element) => { busGripRefs.current[id] = element; }}
         aria-label={`Reorder ${label}, position ${index + 1} of ${state.master.busOrder.length}`}
         aria-describedby="bus-reorder-hint" aria-keyshortcuts="ArrowUp ArrowDown"
-        title={`Drag ${label} to reorder, or use the up and down arrow keys`}
+        title={helpEnabled ? `${label} ORDER: Drag or use the up and down arrow keys.` : undefined}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
           event.preventDefault();
@@ -1152,25 +1309,54 @@ export default function App() {
     moduleSettingsTriggerRef.current?.focus();
   };
 
-  const settingsButton = (id, label, disabled = false) => (
-    <button type="button" className="action-btn action-btn-utility module-settings-button"
-      aria-label={`${label} settings`} aria-haspopup="dialog" disabled={disabled}
+  const moduleTitleButton = (id, label, title, disabled = false) => (
+    <button type="button" className="module-title-trigger"
+      aria-label={`${label} settings`} aria-haspopup="dialog" aria-expanded={moduleSettings === id}
+      disabled={disabled}
+      data-dsp-label="MODULE SETTINGS" data-dsp-help="Select the module display to open its controls, meters and reset option."
       onClick={(event) => {
         moduleSettingsTriggerRef.current = event.currentTarget;
         setModuleSettings(id);
-      }}>
+      }}
+    >
+      <span>{title}</span>
       <GearIcon />
     </button>
   );
 
+  const updateDspInfo = (target) => {
+    const element = target?.closest?.('[data-dsp-help]');
+    if (!element || !chassisRef.current?.contains(element)) {
+      setDspInfo(null);
+      return;
+    }
+    const scope = element.closest('[data-dsp-scope]')?.dataset.dspScope;
+    const label = element.dataset.dspLabel;
+    setDspInfo({
+      label: scope && scope !== label ? `${scope} · ${label}` : label,
+      text: element.dataset.dspHelp
+    });
+  };
+
   return (
     <HelpEnabledContext.Provider value={helpEnabled}>
+    <DspInfoContext.Provider value={{ enabled: helpSettings.dspInfo, info: dspInfo }}>
     <div
       ref={chassisRef}
       className={`chassis${isNativePlugin ? ' native-host' : ''}`}
       data-theme={theme.id}
       data-border-trace={borderTrace.level}
       data-border-trace-speed={borderTrace.speed}
+      onPointerOver={(event) => {
+        if (event.target.closest('[data-dsp-help]') !== event.relatedTarget?.closest?.('[data-dsp-help]'))
+          updateDspInfo(event.target);
+      }}
+      onPointerOut={(event) => {
+        if (event.target.closest('[data-dsp-help]') !== event.relatedTarget?.closest?.('[data-dsp-help]'))
+          updateDspInfo(event.relatedTarget || document.activeElement);
+      }}
+      onFocusCapture={(event) => updateDspInfo(event.target)}
+      onBlurCapture={(event) => updateDspInfo(event.relatedTarget)}
       style={{
         '--theme-background': theme.background,
         '--theme-surface': theme.surface,
@@ -1206,6 +1392,7 @@ export default function App() {
               libraryStatus={presetLibraryStatus}
               status={presetStatus}
               error={presetError}
+              helpEnabled={helpEnabled}
               isInitialPatch={initialPatch}
               busy={presetStatus === 'LOADING PRESET...' || presetStatus === 'SAVING PRESET...' || exporting}
               ready={pluginStateLoaded}
@@ -1233,17 +1420,12 @@ export default function App() {
           </div>
           <div className="topbar-row">
           <div className="topbar-group" role="group" aria-label="Audio">
-            <button
-              className={`topbar-button topbar-hit ${triggered ? 'is-active' : ''}`}
-              onMouseDown={() => triggerHit(1.0)}
-            >
-              HIT [SPACE / MIDI]
-            </button>
+            <HitButton triggered={triggered} onHit={handleHitButton} />
             <button
               className="topbar-button"
               onClick={handleExport}
               disabled={exporting}
-              title={helpEnabled ? (isNativePlugin ? 'Render a WAV in memory for copying or saving' : 'Render and download a 24-bit WAV') : undefined}
+              title={helpEnabled ? (isNativePlugin ? 'PREPARE WAV: Click to render.' : 'EXPORT WAV: Click to render and download.') : undefined}
             >
               {exporting ? 'RENDERING WAV...' : wavActionStatus === 'PREPARE FAILED'
                 ? 'PREPARE FAILED - RETRY'
@@ -1255,7 +1437,7 @@ export default function App() {
               className="topbar-button"
               onClick={handleSavePreparedWav}
               disabled={!preparedWav || exporting}
-              title={helpEnabled ? 'Save a permanent WAV copy to a location you choose' : undefined}
+              title={helpEnabled ? 'SAVE WAV: Click to choose a save location.' : undefined}
             >
               SAVE WAV
             </button>
@@ -1276,7 +1458,9 @@ export default function App() {
           <SystemMenu
             isNativePlugin={isNativePlugin}
             helpEnabled={helpEnabled}
-            onToggleHelp={() => setHelpEnabled((enabled) => !enabled)}
+            onToggleHelp={() => setHelpSettings((current) => ({ ...current, hover: !current.hover }))}
+            dspInfoEnabled={helpSettings.dspInfo}
+            onToggleDspInfo={() => setHelpSettings((current) => ({ ...current, dspInfo: !current.dspInfo }))}
             borderTrace={borderTrace}
             onCycleBorderTraceLevel={() => setBorderTrace((current) => ({
               ...current, level: BORDER_TRACE_LEVELS[(BORDER_TRACE_LEVELS.indexOf(current.level) + 1) % BORDER_TRACE_LEVELS.length]
@@ -1288,6 +1472,7 @@ export default function App() {
               presetStatus === 'SAVING PRESET...' || exporting}
             onInitialize={() => setResetTarget({ kind: 'patch' })}
             onAbout={() => setShowAbout(true)}
+            onOpenOutputScope={() => setSumExpanded(true)}
             onDiagnostics={() => setShowDiagnostics((open) => !open)}
             diagnosticsCount={diagnostics.length}
           />
@@ -1310,18 +1495,20 @@ export default function App() {
             sampleBuffers={sampleBuffers}
             sampleRates={sampleRates}
             processedWaveform={channelWaveforms?.[idx]}
-            processedDuration={visibleLayerSum.durationSec}
+            processedDuration={channelDurations?.[idx] ?? visibleLayerSum.durationSec}
             processedStatus={visibleSumStatus}
             editorResolution={editorResolution}
             onEditorResolutionChange={setEditorResolution}
             channelColors={theme.channelColors}
             playbackId={playbackId}
+            triggered={triggered}
+            onHit={handleHitButton}
             onFileDrop={handleSampleDrop}
             onNativeSampleBrowse={isNativePlugin ? handleNativeSampleBrowse : undefined}
             onRevealSample={isNativePlugin ? (path) => handleRevealSample(idx, path) : undefined}
             onChange={updateLayer}
             onResetKnobs={(index) => setResetTarget({ kind: 'channel', index })}
-            onSwapSamples={(other) => setState((current) => ({
+            onSwapSamples={(other) => editState((current) => ({
               ...current, layers: swapLayerSamples(current.layers, idx, other)
             }))}
             allLayers={state.layers}
@@ -1336,26 +1523,27 @@ export default function App() {
           <div className="visually-hidden" role="status" aria-live="polite">{busOrderAnnouncement}</div>
           <div className="master-modules" aria-label="Signal chain flow">
         {state.master.busOrder.map((module, index) => module === 'noise' ? (
-        <section key={module} {...busDropProps(module)} className={`effect-section noise-module ${
+        <section key={module} {...busDropProps(module)} data-dsp-scope="NOISE SYNTH"
+          className={`effect-section noise-module ${
           state.noise.enabled && !state.noise.mute && state.noise.gain > 0.0005 &&
           (!hasSolo || state.noise.solo) ? 'flow-active' : ''
         }${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
           <div className="effect-heading">
             {busGrip('noise', index)}
-            <strong>{index + 1} · NOISE SYNTH</strong>
-            {settingsButton('noise', 'Noise synth', !state.noise.enabled)}
+            {moduleTitleButton('noise', 'Noise synth',
+              `${index + 1} · NOISE SYNTH${state.noise.mute ? ' · MUTED' : ''}`, !state.noise.enabled)}
             <button type="button"
               className={`effect-toggle ${state.noise.enabled ? 'effect-enabled' : ''}`}
               aria-label={state.noise.enabled ? 'Disable noise synth' : 'Enable noise synth'}
               aria-pressed={state.noise.enabled}
-              onClick={() => setState((s) => ({
+              data-dsp-label="NOISE ENABLE" data-dsp-help="Enables or bypasses the noise synth at its position in the signal chain."
+              onClick={() => editState((s) => ({
                 ...s, noise: { ...s.noise, enabled: !s.noise.enabled }
               }))}>{state.noise.enabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
           </div>
 
           {moduleSettings === 'noise' && state.noise.enabled && (
-          <ModuleSettingsDialog title="NOISE SYNTH" onClose={closeModuleSettings}
-            onReset={() => setResetTarget({ kind: 'module', module: 'noise' })}>
+          <ModuleSettingsDialog title="NOISE SYNTH" onClose={closeModuleSettings} onHit={handleHitButton} triggered={triggered}>
           <NoiseWaveform
             noise={state.noise}
             waveform={visibleLayerSum.comparison?.noise}
@@ -1367,8 +1555,18 @@ export default function App() {
             accent={theme.accentTertiary}
             onChange={(changes) => updateSection('noise', changes)}
           />
-
-          <div className="knob-grid">
+          <ModuleControls name="noise synth" noise={state.noise}
+            muted={state.noise.mute} onMute={() => updateSection('noise', { mute: !state.noise.mute })}
+            onNoiseChange={(changes) => updateSection('noise', changes)}
+            onReset={() => setResetTarget({ kind: 'module', module: 'noise' })} />
+          <div className="knob-grid noise-knobs">
+            <RotaryKnob
+              label="NOISE TYPE" value={NOISE_TYPES.indexOf(state.noise.type)}
+              min={0} max={2} defaultValue={0} options={['WHITE', 'PINK', 'BROWN']}
+              description="Selects white, pink or brown noise before the band-pass filter."
+              accent="var(--theme-accent-tertiary)"
+              onChange={(index) => updateSection('noise', { type: NOISE_TYPES[index] })}
+            />
             <RotaryKnob
               label="FREQ"
               value={state.noise.cutoff}
@@ -1377,6 +1575,7 @@ export default function App() {
               defaultValue={4800}
               unit="Hz"
               decimals={0}
+              description="Sets the center frequency of the noise band-pass filter."
               accent="var(--theme-accent-tertiary)"
               onChange={(v) => updateSection('noise', { cutoff: v })}
             />
@@ -1387,6 +1586,7 @@ export default function App() {
               max={30}
               defaultValue={1.4}
               decimals={1}
+              description="Sets the noise band-pass filter resonance."
               accent="var(--theme-accent-tertiary)"
               onChange={(v) => updateSection('noise', { q: v })}
             />
@@ -1398,6 +1598,7 @@ export default function App() {
               defaultValue={0.075}
               unit="s"
               decimals={3}
+              description="Sets the triggered noise envelope decay time."
               accent="var(--theme-accent-tertiary)"
               onChange={(v) => updateSection('noise', { decay: v })}
             />
@@ -1409,6 +1610,7 @@ export default function App() {
               defaultValue={3.0}
               unit="dB"
               decimals={1}
+              description="Drives the noise clipper before the noise is mixed into the bus."
               accent="var(--theme-accent-secondary)"
               onChange={(v) => updateSection('noise', { clipDrive: v })}
             />
@@ -1419,6 +1621,7 @@ export default function App() {
               max={2}
               defaultValue={0.22}
               decimals={2}
+              description="Sets the noise level added to the bus."
               accent="var(--theme-accent)"
               onChange={(v) => updateSection('noise', { gain: v })}
             />
@@ -1427,40 +1630,153 @@ export default function App() {
           )}
         </section>
 
+        ) : module === 'convolve' ? (
+          <div key={module} {...busDropProps(module)} data-dsp-scope="CONVOLUTION"
+            className={`effect-section ${state.master.convolveEnabled && !state.master.convolveMute ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
+            <div className="effect-heading">
+              {busGrip('convolve', index)}
+              {moduleTitleButton('convolve', 'Convolution',
+                `${index + 1} · CONVOLUTION${state.master.convolveMute ? ' · MUTED' : ''}`,
+                !state.master.convolveEnabled)}
+              <button type="button" className={`effect-toggle ${state.master.convolveEnabled ? 'effect-enabled' : ''}`}
+                aria-label={state.master.convolveEnabled ? 'Bypass convolution' : 'Enable convolution'}
+                aria-pressed={state.master.convolveEnabled}
+                data-dsp-label="CONVOLUTION ENABLE" data-dsp-help="Enables or bypasses the convolution module."
+                onClick={() => editState((s) => ({
+                  ...s, master: { ...s.master, convolveEnabled: !s.master.convolveEnabled }
+                }))}
+              >{state.master.convolveEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
+            </div>
+            {moduleSettings === 'convolve' && state.master.convolveEnabled && (
+              <ModuleSettingsDialog title="CONVOLUTION" onClose={closeModuleSettings} onHit={handleHitButton} triggered={triggered}>
+                <EffectMeters effect="convolve" />
+                <ModuleControls name="convolution" muted={state.master.convolveMute}
+                  onMute={() => updateSection('master', { convolveMute: !state.master.convolveMute })}
+                  onReset={() => setResetTarget({ kind: 'module', module: 'convolve' })} />
+                <div className="knob-grid effect-knobs">
+                  <RotaryKnob label="PROFILE" value={CONVOLVE_PROFILES.indexOf(state.master.convolveProfile)}
+                    min={0} max={2} defaultValue={0} options={['ROOM', 'PLATE', 'CHAMBER']}
+                    description="Selects a generated stereo impulse response."
+                    onChange={(v) => updateSection('master', { convolveProfile: CONVOLVE_PROFILES[v] })} />
+                  <RotaryKnob label="PREDELAY" value={state.master.convolvePredelay} min={0} max={200}
+                    defaultValue={0} unit="ms" decimals={0} description="Delays the wet signal before convolution."
+                    onChange={(v) => updateSection('master', { convolvePredelay: v })} />
+                  <RotaryKnob label="LOW CUT" value={state.master.convolveLowCut} min={20} max={2000}
+                    defaultValue={20} unit="Hz" decimals={0} description="High-pass filters the wet signal."
+                    onChange={(v) => updateSection('master', { convolveLowCut: v })} />
+                  <RotaryKnob label="HIGH CUT" value={state.master.convolveHighCut} min={800} max={20000}
+                    defaultValue={20000} unit="Hz" decimals={0} description="Low-pass filters the wet signal."
+                    onChange={(v) => updateSection('master', { convolveHighCut: v })} />
+                  <RotaryKnob label="DRY/WET" value={state.master.convolveMix} min={0} max={1}
+                    defaultValue={0.5} decimals={2} description="Blends the unprocessed and convolved signals."
+                    onChange={(v) => updateSection('master', { convolveMix: v })} />
+                  <RotaryKnob label="OUTPUT" value={state.master.convolveGainDb} min={-24} max={24}
+                    defaultValue={0} unit="dB" decimals={1} description="Adjusts the module output after the blend."
+                    onChange={(v) => updateSection('master', { convolveGainDb: v })} />
+                </div>
+              </ModuleSettingsDialog>
+            )}
+          </div>
+        ) : module === 'ringMod' ? (
+          <div key={module} {...busDropProps(module)} data-dsp-scope="RING MODULATION"
+            className={`effect-section ${state.master.ringModEnabled && !state.master.ringModMute ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
+            <div className="effect-heading">
+              {busGrip('ringMod', index)}
+              {moduleTitleButton('ringMod', 'Ring modulation',
+                `${index + 1} · RING MODULATION${state.master.ringModMute ? ' · MUTED' : ''}`,
+                !state.master.ringModEnabled)}
+              <button type="button" className={`effect-toggle ${state.master.ringModEnabled ? 'effect-enabled' : ''}`}
+                aria-label={state.master.ringModEnabled ? 'Bypass ring modulation' : 'Enable ring modulation'}
+                aria-pressed={state.master.ringModEnabled}
+                data-dsp-label="RING MOD ENABLE" data-dsp-help="Enables or bypasses ring modulation at this position in the signal chain."
+                onClick={() => updateSection('master', { ringModEnabled: !state.master.ringModEnabled })}
+              >{state.master.ringModEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
+            </div>
+            {moduleSettings === 'ringMod' && state.master.ringModEnabled && (
+              <ModuleSettingsDialog title="RING MODULATION" onClose={closeModuleSettings} onHit={handleHitButton} triggered={triggered}>
+                <EffectMeters effect="ringMod" />
+                <ModuleControls name="ring modulation" muted={state.master.ringModMute}
+                  onMute={() => updateSection('master', { ringModMute: !state.master.ringModMute })}
+                  onReset={() => setResetTarget({ kind: 'module', module: 'ringMod' })} />
+                <div className="knob-grid effect-knobs">
+                  <RotaryKnob label="FREQUENCY" value={state.master.ringModFrequency} min={0.1} max={5000}
+                    defaultValue={100} unit="Hz" decimals={1} logarithmic
+                    description="Sets the sine carrier frequency. Low rates create tremolo; audio rates create sum and difference frequencies."
+                    onChange={(v) => updateSection('master', { ringModFrequency: v })} />
+                  <RotaryKnob label="PHASE" value={state.master.ringModPhase} min={0} max={360}
+                    defaultValue={0} unit="°" decimals={0}
+                    description="Sets the carrier's starting phase on each hit; 90 degrees starts at its positive peak."
+                    onChange={(v) => updateSection('master', { ringModPhase: v })} />
+                  <RotaryKnob label="BIAS" value={state.master.ringModBias} min={0} max={1}
+                    defaultValue={0} decimals={2}
+                    description="Adds a positive offset to the carrier, restoring some original signal and increasing wet level."
+                    onChange={(v) => updateSection('master', { ringModBias: v })} />
+                  <RotaryKnob label="RECTIFY" value={state.master.ringModRectify} min={-1} max={1}
+                    defaultValue={0} decimals={2}
+                    description="Bends the carrier toward negative or positive full-wave rectification, adding harmonics."
+                    onChange={(v) => updateSection('master', { ringModRectify: v })} />
+                  <RotaryKnob label="SPREAD" value={state.master.ringModSpread} min={0} max={1}
+                    defaultValue={0} decimals={2}
+                    description="Detunes left and right carrier frequencies in opposite directions by up to 5%, creating stereo motion."
+                    onChange={(v) => updateSection('master', { ringModSpread: v })} />
+                  <RotaryKnob label="DRY/WET" value={state.master.ringModMix} min={0} max={1}
+                    defaultValue={1} decimals={2} description="Blends the unprocessed bus with the ring-modulated signal."
+                    onChange={(v) => updateSection('master', { ringModMix: v })} />
+                  <RotaryKnob label="OUTPUT" value={state.master.ringModGainDb} min={-24} max={24}
+                    defaultValue={0} unit="dB" decimals={1} description="Adjusts the module output after the blend."
+                    onChange={(v) => updateSection('master', { ringModGainDb: v })} />
+                </div>
+              </ModuleSettingsDialog>
+            )}
+          </div>
         ) : module === 'saturation' ? (
-          <div key={module} {...busDropProps(module)} className={`effect-section ${state.master.saturationEnabled ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
+          <div key={module} {...busDropProps(module)} data-dsp-scope="SATURATION"
+            className={`effect-section ${state.master.saturationEnabled && !state.master.saturationMute ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
             <div className="effect-heading">
               {busGrip('saturation', index)}
-              <strong>{index + 1} · SATURATION</strong>
-              {settingsButton('saturation', 'Saturation', !state.master.saturationEnabled)}
+              {moduleTitleButton('saturation', 'Saturation',
+                `${index + 1} · SATURATION${state.master.saturationMute ? ' · MUTED' : ''}`,
+                !state.master.saturationEnabled)}
               <button
                 type="button"
                 className={`effect-toggle ${state.master.saturationEnabled ? 'effect-enabled' : ''}`}
                 aria-label={state.master.saturationEnabled ? 'Bypass master saturation' : 'Enable master saturation'}
                 aria-pressed={state.master.saturationEnabled}
-                onClick={() => setState((s) => ({
+                data-dsp-label="SATURATION ENABLE" data-dsp-help="Enables or bypasses the saturation module."
+                onClick={() => editState((s) => ({
                   ...s, master: { ...s.master, saturationEnabled: !s.master.saturationEnabled }
                 }))}
               >{state.master.saturationEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
             {moduleSettings === 'saturation' && state.master.saturationEnabled && (
-              <ModuleSettingsDialog title="SATURATION" onClose={closeModuleSettings}
-            onReset={() => setResetTarget({ kind: 'module', module: 'saturation' })}>
+              <ModuleSettingsDialog title="SATURATION" onClose={closeModuleSettings} onHit={handleHitButton} triggered={triggered}>
               <EffectMeters effect="saturation" />
-              <div className="knob-grid effect-knobs effect-knobs-three">
+              <ModuleControls name="saturation" muted={state.master.saturationMute}
+                onMute={() => updateSection('master', { saturationMute: !state.master.saturationMute })}
+                onReset={() => setResetTarget({ kind: 'module', module: 'saturation' })} />
+              <div className="knob-grid effect-knobs">
+                <RotaryKnob
+                  label="SAT TYPE" value={SATURATION_TYPES.indexOf(state.master.saturationType)}
+                  min={0} max={2} defaultValue={0} options={['TAPE', 'TUBE', 'DIGITAL']}
+                  description="Selects a tape-style soft curve, asymmetric tube-style curve or digital hard clip."
+                  onChange={(index) => updateSection('master', { saturationType: SATURATION_TYPES[index] })}
+                />
                 <RotaryKnob
                   label="SAT DRIVE" value={state.master.saturationDrive} min={0} max={24}
                   defaultValue={6} unit="dB" decimals={1}
+                  description="Sets the input drive of the selected saturation curve."
                   onChange={(v) => updateSection('master', { saturationDrive: v })}
                 />
                 <RotaryKnob
                   label="SAT DRY/WET" value={state.master.saturationMix} min={0} max={1}
                   defaultValue={1} decimals={2}
+                  description="Blends the unprocessed bus with the saturated signal."
                   onChange={(v) => updateSection('master', { saturationMix: v })}
                 />
                 <RotaryKnob
                   label="OUTPUT" value={state.master.saturationGainDb} min={-24} max={24}
                   defaultValue={0} unit="dB" decimals={1}
+                  description="Adjusts the saturation module output after the dry/wet blend."
                   onChange={(v) => updateSection('master', { saturationGainDb: v })}
                 />
               </div>
@@ -1468,59 +1784,71 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div key={module} {...busDropProps(module)} className={`effect-section ${state.master.glueEnabled ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
+          <div key={module} {...busDropProps(module)} data-dsp-scope="GLUE"
+            className={`effect-section ${state.master.glueEnabled && !state.master.glueMute ? 'flow-active' : ''}${draggingBusModule === module ? ' is-dragging' : ''}${busDropTarget === module && draggingBusModule !== module ? ' is-drop-target' : ''}`}>
             <div className="effect-heading">
               {busGrip('glue', index)}
-              <strong>{index + 1} · GLUE COMPRESSOR</strong>
-              {settingsButton('glue', 'Glue compressor', !state.master.glueEnabled)}
+              {moduleTitleButton('glue', 'Glue compressor',
+                `${index + 1} · GLUE COMPRESSOR${state.master.glueMute ? ' · MUTED' : ''}`,
+                !state.master.glueEnabled)}
               <button
                 type="button"
                 className={`effect-toggle ${state.master.glueEnabled ? 'effect-enabled' : ''}`}
                 aria-label={state.master.glueEnabled ? 'Bypass glue compressor' : 'Enable glue compressor'}
                 aria-pressed={state.master.glueEnabled}
-                onClick={() => setState((s) => ({
+                data-dsp-label="GLUE ENABLE" data-dsp-help="Enables or bypasses the linked stereo compressor."
+                onClick={() => editState((s) => ({
                   ...s, master: { ...s.master, glueEnabled: !s.master.glueEnabled }
                 }))}
               >{state.master.glueEnabled ? 'ON · BYPASS' : 'OFF · ENABLE'}</button>
             </div>
             {moduleSettings === 'glue' && state.master.glueEnabled && (
-              <ModuleSettingsDialog title="GLUE COMPRESSOR" onClose={closeModuleSettings}
-            onReset={() => setResetTarget({ kind: 'module', module: 'glue' })}>
+              <ModuleSettingsDialog title="GLUE COMPRESSOR" onClose={closeModuleSettings} onHit={handleHitButton} triggered={triggered}>
               <EffectMeters effect="glue" />
+              <ModuleControls name="glue compressor" muted={state.master.glueMute}
+                onMute={() => updateSection('master', { glueMute: !state.master.glueMute })}
+                onReset={() => setResetTarget({ kind: 'module', module: 'glue' })} />
               <div className="knob-grid effect-knobs">
                 <RotaryKnob
                   label="THRESH" value={state.master.glueThreshold} min={-36} max={0}
                   defaultValue={-12} unit="dB" decimals={1}
+                  description="Sets the level where the linked compressor starts reducing gain, subject to the knee."
                   onChange={(v) => updateSection('master', { glueThreshold: v })}
                 />
                 <RotaryKnob
                   label="RATIO" value={state.master.glueRatio} min={1} max={8}
                   defaultValue={2} unit=":1" decimals={1}
+                  description="Sets the compression ratio above the knee."
                   onChange={(v) => updateSection('master', { glueRatio: v })}
                 />
                 <RotaryKnob
                   label="ATTACK" value={state.master.glueAttack * 1000} min={1} max={100}
                   defaultValue={10} unit="ms" decimals={0}
+                  description="Sets how quickly the compressor detector responds to a rising peak."
                   onChange={(v) => updateSection('master', { glueAttack: v / 1000 })}
                 />
                 <RotaryKnob
                   label="RELEASE" value={state.master.glueRelease * 1000} min={30} max={600}
                   defaultValue={120} unit="ms" decimals={0}
+                  description="Sets how quickly the compressor detector falls after a peak."
                   onChange={(v) => updateSection('master', { glueRelease: v / 1000 })}
                 />
                 <RotaryKnob
                   label="KNEE" value={state.master.glueKnee} min={0} max={24}
                   defaultValue={6} unit="dB" decimals={1}
+                  description="Sets the width of the soft transition around the compressor threshold."
                   onChange={(v) => updateSection('master', { glueKnee: v })}
                 />
                 <RotaryKnob
                   label="DRY/WET" value={state.master.glueMix} min={0} max={1}
                   defaultValue={1} decimals={2}
+                  description="Blends the uncompressed bus with the gain-reduced signal."
                   onChange={(v) => updateSection('master', { glueMix: v })}
                 />
                 <RotaryKnob
                   label="OUTPUT" value={state.master.glueGainDb} min={-24} max={24}
                   defaultValue={0} unit="dB" decimals={1}
+                  description="Adjusts compressor output after the dry/wet blend."
                   onChange={(v) => updateSection('master', { glueGainDb: v })}
                 />
               </div>
@@ -1533,8 +1861,10 @@ export default function App() {
           <div className="bus-flow-end">TO OUTPUT STAGE</div>
         </section>
 
-        <section className="output-stage" aria-label="Output stage controls">
-          <div className="output-stage-heading">OUTPUT STAGE · CLIPPER → CEILING → OUTPUT</div>
+        <section className="output-stage" aria-label="Output stage controls"
+          data-dsp-scope="OUTPUT STAGE">
+          <div className="strip-header"><span className="strip-tag tag-rose">OUTPUT STAGE</span></div>
+          <div className="output-stage-flow">CLIPPER <span aria-hidden="true">→</span> CEILING <span aria-hidden="true">→</span> OUTPUT</div>
           <div className="knob-grid master-knobs">
             <RotaryKnob
               label="BUS DRIVE"
@@ -1544,6 +1874,7 @@ export default function App() {
               defaultValue={2.0}
               unit="dB"
               decimals={1}
+              description="Drives the master clipper before the ceiling and final output gain."
               accent="var(--theme-accent-secondary)"
               onChange={(v) => updateSection('master', { drive: v })}
             />
@@ -1554,6 +1885,7 @@ export default function App() {
               max={1}
               defaultValue={0.45}
               decimals={2}
+              description="Blends the master clipper from soft saturation to hard clipping."
               accent="var(--theme-accent-secondary)"
               onChange={(v) => updateSection('master', { hardness: v })}
             />
@@ -1564,6 +1896,7 @@ export default function App() {
               max={1.0}
               defaultValue={0.95}
               decimals={2}
+              description="Scales the clipped signal; it is not a limiter on the final output."
               accent="var(--theme-accent)"
               onChange={(v) => updateSection('master', { ceiling: v })}
             />
@@ -1580,17 +1913,22 @@ export default function App() {
               onChange={(v) => updateSection('master', { outputDb: v })}
             />
           </div>
+          <DspInfoScreen />
         </section>
 
-        <div className="rack-sum">
+        <div className="rack-sum" data-dsp-scope="OUTPUT SCOPE">
           <LayerSumViewer
+            expanded={sumExpanded}
+            onExpandedChange={setSumExpanded}
             sum={visibleLayerSum}
+            sourceDurationSec={sourceDurationSec}
             previewStatus={visibleSumStatus}
             playheads={sumPlaybackTracks}
             playbackId={playbackId}
             theme={theme}
             layers={state.layers}
             noise={state.noise}
+            master={state.master}
             resolution={sumResolution}
             onResolutionChange={setSumResolution}
             traceEnabled={traceEnabled}
@@ -1776,6 +2114,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </DspInfoContext.Provider>
     </HelpEnabledContext.Provider>
   );
 }

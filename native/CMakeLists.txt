@@ -58,8 +58,15 @@ target_sources(LayerForge PRIVATE
     PluginProcessor.h
     PluginEditor.cpp
     PluginEditor.h
+    Convolution.h
+    third_party/elementary/wasm/FFTConvolver/AudioFFT.cpp
+    third_party/elementary/wasm/FFTConvolver/FFTConvolver.cpp
+    third_party/elementary/wasm/FFTConvolver/TwoStageFFTConvolver.cpp
+    third_party/elementary/wasm/FFTConvolver/Utilities.cpp
 )
-target_include_directories(LayerForge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/build/generated")
+target_include_directories(LayerForge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/build/generated"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/elementary/wasm"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/elementary/wasm/FFTConvolver")
 
 if(APPLE)
     target_sources(LayerForge PRIVATE PluginClipboard_mac.mm PluginClipboard.h)

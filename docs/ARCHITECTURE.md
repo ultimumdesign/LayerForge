@@ -47,14 +47,17 @@ repurposed.
 
 ### Host parameters and automation
 
-The VST3/AU exposes 55 continuous, linearly normalized parameters. Stable
+The VST3/AU exposes 68 continuous, linearly normalized parameters. Stable
 IDs are `l0_`, `l1_`, and `l2_` followed by each of `pitch`, `delayMs`,
 `attack`, `sustain`, `hp`, `lp`, `clipDrive`, `clipHardness`, `inputDb`,
 `width`, `gain`, `phaseOffset`; `noise_` followed by `cutoff`, `q`, `decay`,
 `clipDrive`, `gain`; and `master_` followed by `saturationDrive`,
 `saturationMix`, `saturationGainDb`, `glueThreshold`, `glueRatio`,
 `glueAttack`, `glueRelease`, `glueKnee`, `glueMix`, `glueGainDb`, `drive`,
-`hardness`, `ceiling`, `outputDb`. Ranges, units, and defaults are in
+`hardness`, `ceiling`, `outputDb`, `convolvePredelay`, `convolveLowCut`,
+`convolveHighCut`, `convolveMix`, `convolveGainDb`, `ringModFrequency`,
+`ringModMix`, `ringModGainDb`, `ringModPhase`, `ringModBias`, `ringModRectify`,
+`ringModSpread`; and `noise_delayMs`. Ranges, units, and defaults are in
 `dsp/parameters.js`; glue times are stored in seconds, phase offset is a
 fraction of the trimmed sample, and gains without a dB suffix are linear.
 Bypasses, mute/solo, sample/trim/envelope editing and routing remain patch
@@ -84,7 +87,7 @@ lanes for the editor.
 
 ### Monitor outputs
 
-`buildDrumGraph(state, true, nativeMidi)` returns 18 channels in this order:
+`buildDrumGraph(state, true, nativeMidi)` returns 22 channels in this order:
 
 | Index | Signal |
 |---|---|
@@ -96,20 +99,26 @@ lanes for the editor.
 | 13–14 | Saturation input/output stereo peaks |
 | 15–16 | Compressor input/output stereo peaks |
 | 17 | Linked compressor wet-path gain reduction in positive dB |
+| 18–19 | Convolution input/output stereo peaks |
+| 20–21 | Ring modulation input/output stereo peaks |
 
 The effect taps follow the saved bus order; input/output taps match when an
 effect is bypassed, and reduction is zero. Only the first 13 channels enter
-live trace capture. The last five are aggregated as maxima between meter
+live trace capture. The last nine are aggregated as maxima between meter
 updates, independently of trace capture. The browser worklet sends meter
 updates roughly 60 times per second; the native processor accumulates peaks
 atomically and the visible editor forwards them on its 16 ms timer.
 `layerforgeOutputMeter` carries the final peak and an `effects` array in
-13–17 order. Neither path sends effect samples individually to the UI.
+13–21 order. Neither path sends effect samples individually to the UI.
 
 Keep the graph, browser channel count/worklet, native scratch buffers and
 meter forwarding in sync when changing these lanes. The offline preview
 graph uses its own 12-channel layout without the trigger or effect meters;
 normal WAV rendering uses only the final stereo pair.
+In offline waveform previews, the comparison channels, pre-master sum and
+final output share the full output-time axis. Editable channel-strip previews
+use a separate source-mapped lane with that channel's own playback duration;
+master processing tails must not remap their display.
 
 ### Host state
 
@@ -140,10 +149,12 @@ export. Themes live in `uiThemes.js` and `styles/theme.css`.
 ## Patch data
 
 - A *patch* is JSON: three channel objects, a `noise` object and a `master`
-  object. Samples are referenced by key and stored separately.
+  object. Samples are referenced by key and stored separately. Effect mute
+  states are saved independently of their enable switches; muting convolution, saturation,
+  glue or ring modulation bypasses that module while leaving its settings available.
 - `restorePatchState` clamps every value to its documented range and fills
   missing fields with defaults. This is how older patches load (for example,
-  patches without saturation or glue restore with those modules bypassed, and
+  patches without convolution, saturation, glue or ring modulation restore with those modules bypassed, and
   legacy ADSR-style channel envelopes are converted to envelope points).
 - New **`.lfpreset`** files contain the patch and absolute source paths with
   SHA-256 hashes, not sample audio. File contents are checked against the

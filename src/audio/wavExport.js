@@ -2,6 +2,7 @@ import OfflineRenderer from '@elemaudio/offline-renderer';
 import { buildDrumGraph, buildDrumPreviewGraph } from '../../dsp/engine.js';
 import { getSamplePhaseShift, getSampleTrimRange } from '../../dsp/parameters.js';
 import { DEFAULT_WAVEFORM_BIN_COUNT } from './waveform.js';
+import { createBuiltinImpulses, getBuiltinImpulseDuration } from '../../dsp/convolution.js';
 
 const SAMPLE_RATE = 44100;
 const BLOCK_SIZE = 128;
@@ -32,7 +33,22 @@ export function getPatchDurationSec(state, vfsBuffers) {
     state.noise.enabled && !state.noise.mute &&
     state.noise.gain > 0.0005 &&
     (!hasSolo || state.noise.solo);
-  return Math.max(0.12, ...layerDurations, noiseAudible ? state.noise.decay + 0.02 : 0) + 0.02;
+  const noiseDuration = noiseAudible ? Math.max(0, state.noise.delayMs ?? 0) / 1000 + state.noise.decay + 0.02 : 0;
+  const tail = state.master.convolveEnabled && !state.master.convolveMute && state.master.convolveMix > 0
+    ? getBuiltinImpulseDuration(state.master.convolveProfile) + state.master.convolvePredelay / 1000 : 0;
+  return Math.max(0.12, ...layerDurations, noiseDuration) + tail + 0.02;
+}
+
+function getChannelPreviewDurationSec(layer, vfsBuffers) {
+  const samples = layer.sampleKey ? vfsBuffers[layer.sampleKey] : null;
+  if (!layer.loaded || !samples?.length) return 0.12;
+  const playbackRate = Math.pow(2, layer.pitch / 12);
+  const trimRange = getSampleTrimRange(samples.length, layer.trimStart, layer.trimEnd);
+  const phase = getSamplePhaseShift(trimRange.sampleCount, layer.phaseOffset);
+  const sampleDuration = (trimRange.sampleCount - phase.advanceSamples) /
+    ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
+  const phaseDelay = phase.delaySamples / ((layer.sampleRate || SAMPLE_RATE) * playbackRate);
+  return Math.max(0.12, Math.max(0, layer.delayMs) / 1000 + phaseDelay + sampleDuration);
 }
 
 async function initializeRenderer(vfsBuffers, numOutputChannels = 2) {
@@ -42,7 +58,7 @@ async function initializeRenderer(vfsBuffers, numOutputChannels = 2) {
     numOutputChannels,
     sampleRate: SAMPLE_RATE,
     blockSize: BLOCK_SIZE,
-    virtualFileSystem: vfsBuffers
+    virtualFileSystem: { ...vfsBuffers, ...createBuiltinImpulses() }
   });
   return offline;
 }
@@ -133,6 +149,19 @@ export async function renderWaveformPreview(
       transientMax: new Float32Array(transientSampleCount)
     };
   });
+  const channelDurations = state.layers.map((layer) => getChannelPreviewDurationSec(layer, vfsBuffers));
+  const channelWaveforms = channelDurations.map(() => {
+    const min = new Float32Array(barCount);
+    const max = new Float32Array(barCount);
+    min.fill(Infinity);
+    max.fill(-Infinity);
+    return {
+      min,
+      max,
+      transient: new Float32Array(transientSampleCount),
+      transientMax: new Float32Array(transientSampleCount)
+    };
+  });
 
   const processRange = (startSample, length) => {
     const chunkSize = 4096;
@@ -155,6 +184,21 @@ export async function renderWaveformPreview(
             waveform.transientMax[absoluteIndex] = right;
           }
         }
+        for (let channel = 0; channel < channelWaveforms.length; channel += 1) {
+          const duration = channelDurations[channel];
+          const time = absoluteIndex / SAMPLE_RATE;
+          if (time >= duration) continue;
+          const laneBar = Math.min(barCount - 1, Math.floor((time * barCount) / duration));
+          const left = output[2 + channel * 2][index];
+          const right = output[3 + channel * 2][index];
+          const waveform = channelWaveforms[channel];
+          waveform.min[laneBar] = Math.min(waveform.min[laneBar], left, right);
+          waveform.max[laneBar] = Math.max(waveform.max[laneBar], left, right);
+          if (absoluteIndex < transientSampleCount) {
+            waveform.transient[absoluteIndex] = left;
+            waveform.transientMax[absoluteIndex] = right;
+          }
+        }
       }
       offset += size;
     }
@@ -165,6 +209,12 @@ export async function renderWaveformPreview(
   processRange(gateSamples, Math.max(0, totalSamples - gateSamples));
 
   for (const waveform of waveforms) {
+    for (let index = 0; index < barCount; index += 1) {
+      if (!Number.isFinite(waveform.min[index])) waveform.min[index] = 0;
+      if (!Number.isFinite(waveform.max[index])) waveform.max[index] = 0;
+    }
+  }
+  for (const waveform of channelWaveforms) {
     for (let index = 0; index < barCount; index += 1) {
       if (!Number.isFinite(waveform.min[index])) waveform.min[index] = 0;
       if (!Number.isFinite(waveform.max[index])) waveform.max[index] = 0;
@@ -187,7 +237,10 @@ export async function renderWaveformPreview(
       rightMin: final.min,
       rightMax: final.max
     },
-    comparison: { final, layers: remaining, noise, preMaster, sampleRate: SAMPLE_RATE }
+    comparison: {
+      final, layers: remaining, channelPreviews: channelWaveforms, layerDurations: channelDurations,
+      noise, preMaster, sampleRate: SAMPLE_RATE
+    }
   };
 }
 

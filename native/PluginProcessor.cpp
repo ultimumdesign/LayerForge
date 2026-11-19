@@ -2,11 +2,13 @@
 #include "PluginEditor.h"
 #include "LayerForgeNativeGraph.h"
 #include "HostParameters.h"
+#include "Convolution.h"
 #include <elem/AudioBufferResource.h>
 #include <juce_javascript/juce_javascript.h>
 
 #include <cmath>
 #include <limits>
+#include <tuple>
 #include <unordered_set>
 
 namespace
@@ -203,6 +205,20 @@ void LayerForgeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
 {
     const juce::ScopedLock lock(graphWriteLock);
     runtime = std::make_unique<elem::Runtime<float>>(sampleRate, samplesPerBlock);
+    runtime->registerNodeType("convolve", [](auto id, auto rate, auto size) {
+        return std::make_shared<layerforge::ConvolutionNode>(id, rate, size);
+    });
+    for (const auto& profile : { std::tuple { "room", 0.18, 24.0, 1957u },
+                                 std::tuple { "plate", 0.45, 12.0, 2719u },
+                                 std::tuple { "chamber", 0.3, 16.0, 4337u } }) {
+        for (int side = 0; side < 2; ++side) {
+            auto impulse = layerforge::makeImpulse(std::get<1>(profile), std::get<2>(profile),
+                                                   std::get<3>(profile) + static_cast<unsigned>(side));
+            const auto key = std::string("lf_ir_44100_") + std::get<0>(profile) + (side == 0 ? "_left" : "_right");
+            if (!runtime->addSharedResource(key, std::make_unique<elem::AudioBufferResource>(impulse.data(), impulse.size())))
+                juce::Logger::writeToLog("LayerForge: could not register built-in convolution impulse " + juce::String(key));
+        }
+    }
     runtimeGeneration.fetch_add(1, std::memory_order_release);
     runtime->registerNodeType("layerforge-midi-gate", [](auto id, auto rate, auto size) {
         return std::make_shared<MidiSignalNode<0>>(id, rate, size);
@@ -220,7 +236,7 @@ void LayerForgeAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
                 std::make_unique<elem::AudioBufferResource>(sample.samples.data(), sample.samples.size())))
             DBG("[LayerForge] Could not restore sample resource: " + juce::String(sample.key));
     }
-    scratchBuffer.setSize(16, std::max(1, samplesPerBlock));
+    scratchBuffer.setSize(20, std::max(1, samplesPerBlock));
     midiSignals.setSize(3, std::max(1, samplesPerBlock));
     midiGateRemaining = 0;
     midiVelocity = 1.0f;
@@ -274,10 +290,10 @@ void LayerForgeAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, ju
                     --midiGateRemaining;
             }
             LayerForgeMidiSignals signals { inputGate, inputTrigger, inputVelocity };
-            float* outputs[18] = { outL, outR, gate };
-            for (int channel = 3; channel < 18; ++channel)
+            float* outputs[22] = { outL, outR, gate };
+            for (int channel = 3; channel < 22; ++channel)
                 outputs[channel] = scratchBuffer.getWritePointer(channel - 2);
-            runtime->process(nullptr, 0, outputs, 18, count, &signals);
+            runtime->process(nullptr, 0, outputs, 22, count, &signals);
 
             float peak = 0.0f;
             for (int index = 0; index < count; ++index)

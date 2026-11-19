@@ -51,10 +51,14 @@ private:
 
     LayerForgeAudioProcessor& audioProcessor;
     std::unique_ptr<juce::WebBrowserComponent> webView;
+    bool editorReady = false;
+    bool autoHeightEnabled = true;
+    bool applyingAutomaticHeight = false;
     int traceGeneration = 0;
     bool traceEnabled = false;
     std::uint64_t lastStateRevision = 0;
     std::vector<float> lastParameterValues;
+    std::vector<std::uint64_t> lastEditorParameterSequences;
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool fileChooserActive = false;
     std::unordered_map<std::string, PendingSampleTransfer> pendingSampleTransfers;

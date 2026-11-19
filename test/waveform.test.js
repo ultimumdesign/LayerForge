@@ -9,7 +9,8 @@ import OfflineRenderer from '@elemaudio/offline-renderer';
 import { el } from '@elemaudio/core';
 import { createHitPeakTracker } from '../src/audio/meterPeaks.js';
 import { buildDrumGraph } from '../dsp/engine.js';
-import { glueCompressor, saturator } from '../dsp/nodes.js';
+import { builtinImpulseKey, createBuiltinImpulses, resampleImpulse } from '../dsp/convolution.js';
+import { colorNoise, glueCompressor, saturator } from '../dsp/nodes.js';
 import { getEnvelopeSequence, getEnvelopeValueAt } from '../dsp/envelope.js';
 import {
   createDefaultState,
@@ -26,9 +27,11 @@ import {
   detectSilenceEnd,
   detectSilenceStart,
   getDefaultSampleTrim,
+  getComparisonCursorRange,
   getLayerPreviewWaveform,
   getPhaseOffset,
   getLayerPlaybackInfo,
+  getPlayableSourceDurationSec,
   getLayerSumPeaks,
   getTrimmedPreviewRange,
   getZoomedPreviewRange,
@@ -38,8 +41,9 @@ import {
   mapOutputWaveformToSource,
   mergeStereoWaveform
 } from '../src/audio/waveform.js';
-import { renderWavBlob, renderWaveformPreview } from '../src/audio/wavExport.js';
+import { getPatchDurationSec, renderWavBlob, renderWaveformPreview } from '../src/audio/wavExport.js';
 import { LiveComparisonTrace, LiveTrace, reduceComparisonResolution, reduceWaveformResolution } from '../src/audio/liveTrace.js';
+import { createPatchHistory, getHistoryShortcut } from '../src/patchHistory.js';
 
 const SAMPLE_RATE = 44100;
 const sample = Float32Array.from(
@@ -47,10 +51,413 @@ const sample = Float32Array.from(
   (_, index) => 0.5 * Math.sin((2 * Math.PI * 440 * index) / SAMPLE_RATE)
 );
 
+test('decorative border animation avoids repainting panel backgrounds and shadows', () => {
+  const styles = readFileSync(new URL('../src/styles/theme.css', import.meta.url), 'utf8');
+  const animation = styles.match(/@keyframes theme-laser-trace\s*\{\s*from\s*\{([^}]*)\}\s*to\s*\{([^}]*)\}/);
+  assert.ok(animation);
+  assert.match(animation[1], /opacity:\s*0/);
+  assert.match(animation[2], /opacity:\s*1/);
+  assert.doesNotMatch(animation[0], /background-position|box-shadow/);
+});
+
+test('convolution profiles are deterministic, stereo and distinct', () => {
+  const first = createBuiltinImpulses();
+  const second = createBuiltinImpulses();
+  for (const profile of ['room', 'plate', 'chamber']) {
+    const left = first[builtinImpulseKey(profile, 'left')];
+    const right = first[builtinImpulseKey(profile, 'right')];
+    assert.ok(left.length > 0);
+    assert.equal(left.length, right.length);
+    assert.deepEqual(left, second[builtinImpulseKey(profile, 'left')]);
+    assert.notDeepEqual(left, right);
+    assert.ok(left.every(Number.isFinite));
+  }
+  assert.notEqual(first[builtinImpulseKey('room', 'left')].length,
+    first[builtinImpulseKey('plate', 'left')].length);
+});
+
+test('impulse resampling preserves delay, duration and DC gain at different rates', () => {
+  const source = new Float32Array(4410);
+  source[441] = 1;
+  for (const target of [22050, 48000, 88200]) {
+    const result = resampleImpulse(source, 44100, target);
+    assert.equal(result.length, Math.ceil(source.length * target / 44100));
+    const peak = result.indexOf(Math.max(...result));
+    assert.ok(Math.abs(peak / target - 0.01) <= 1 / target);
+    assert.ok(Math.abs(result.reduce((sum, value) => sum + value, 0) - 1) < 0.01);
+  }
+  assert.throws(() => resampleImpulse(source, 0, 44100), /sample rates/);
+  assert.throws(() => resampleImpulse(new Float32Array(), 44100, 44100), /non-empty/);
+});
+
+test('convolution patch migration and profile restoration retain state', () => {
+  const legacy = restorePatchState({ master: { busOrder: ['glue', 'noise', 'saturation'] } });
+  assert.deepEqual(legacy.master.busOrder, ['glue', 'noise', 'ringMod', 'convolve', 'saturation']);
+  assert.equal(legacy.master.convolveEnabled, false);
+  const patch = createDefaultState();
+  patch.master.convolveEnabled = true;
+  patch.master.convolveProfile = 'chamber';
+  const serialized = serializePatchState(patch);
+  const restored = restorePatchState(serialized);
+  assert.equal(restored.master.convolveProfile, 'chamber');
+  assert.equal(restored.master.convolveEnabled, true);
+  const reset = resetBusModuleKnobs(restored, 'convolve');
+  assert.equal(reset.master.convolveProfile, 'room');
+  assert.equal(reset.master.convolveEnabled, true);
+  assert.deepEqual(reset.master.busOrder, restored.master.busOrder);
+});
+
+test('ring modulation state migrates, validates, round-trips and resets its knobs', () => {
+  const legacy = restorePatchState({ master: { busOrder: ['glue', 'noise', 'saturation', 'convolve'] } });
+  assert.deepEqual(legacy.master.busOrder, ['glue', 'noise', 'ringMod', 'saturation', 'convolve']);
+  assert.equal(legacy.master.ringModEnabled, false);
+  assert.deepEqual(
+    [legacy.master.ringModPhase, legacy.master.ringModBias, legacy.master.ringModRectify, legacy.master.ringModSpread],
+    [0, 0, 0, 0]
+  );
+  const patch = createDefaultState();
+  Object.assign(patch.master, {
+    busOrder: ['ringMod', 'noise', 'glue', 'convolve', 'saturation'],
+    ringModEnabled: true, ringModMute: true, ringModFrequency: 300, ringModMix: 0.4, ringModGainDb: -6,
+    ringModPhase: 90, ringModBias: 0.5, ringModRectify: -0.5, ringModSpread: 0.75
+  });
+  const restored = restorePatchState(serializePatchState(patch));
+  assert.deepEqual(restored.master, patch.master);
+  const reset = resetBusModuleKnobs(restored, 'ringMod');
+  assert.equal(reset.master.ringModFrequency, 100);
+  assert.equal(reset.master.ringModMix, 1);
+  assert.equal(reset.master.ringModGainDb, 0);
+  assert.deepEqual(
+    [reset.master.ringModPhase, reset.master.ringModBias, reset.master.ringModRectify, reset.master.ringModSpread],
+    [0, 0, 0, 0]
+  );
+  assert.equal(reset.master.ringModEnabled, true);
+  assert.equal(reset.master.ringModMute, true);
+  assert.deepEqual(reset.master.busOrder, patch.master.busOrder);
+  const bounded = restorePatchState({ master: {
+    ringModFrequency: 9000, ringModMix: -1, ringModGainDb: 99,
+    ringModPhase: 500, ringModBias: 2, ringModRectify: -2, ringModSpread: 2
+  } });
+  assert.equal(bounded.master.ringModFrequency, 5000);
+  assert.equal(bounded.master.ringModMix, 0);
+  assert.equal(bounded.master.ringModGainDb, 24);
+  assert.deepEqual(
+    [bounded.master.ringModPhase, bounded.master.ringModBias, bounded.master.ringModRectify, bounded.master.ringModSpread],
+    [360, 1, -1, 1]
+  );
+});
+
+test('ring carrier phase, bias, rectification and spread shape stereo audio', async () => {
+  const patch = createLoadedPatch();
+  patch.layers[0].sampleRightKey = 'right';
+  Object.assign(patch.master, { drive: 0, hardness: 1, ceiling: 1, ringModEnabled: true, ringModFrequency: 100 });
+  const resources = { kick: sample, right: Float32Array.from(sample, (value) => value * 0.5) };
+  const render = async (changes) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({
+      numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE,
+      blockSize: 128, virtualFileSystem: resources
+    });
+    const state = { ...patch, master: { ...patch.master, ...changes }, gate: 0 };
+    await renderer.render(...buildDrumGraph(state, true));
+    renderer.process([], Array.from({ length: 22 }, () => new Float32Array(22016)));
+    await renderer.render(...buildDrumGraph({ ...state, gate: 1 }, true));
+    const outputs = Array.from({ length: 22 }, () => new Float32Array(8192));
+    renderer.process([], outputs);
+    return outputs;
+  };
+  const phase = await render({ ringModPhase: 90 });
+  const bias = await render({ ringModBias: 0.5 });
+  const positive = await render({ ringModRectify: 1 });
+  const negative = await render({ ringModRectify: -1 });
+  const partial = await render({ ringModRectify: 0.5 });
+  const spread = await render({ ringModSpread: 1 });
+  const dry = await render({ ringModMix: 0, ringModPhase: 90, ringModBias: 1, ringModRectify: 1, ringModSpread: 1 });
+  for (let i = 50; i < 8192; i += 37) {
+    const angle = 2 * Math.PI * 100 * i / SAMPLE_RATE;
+    const input = phase[3][i];
+    assert.ok(Math.abs(phase[0][i] - input * Math.cos(angle)) < 0.001);
+    assert.ok(Math.abs(bias[0][i] - input * (Math.sin(angle) + 0.5)) < 0.001);
+    assert.ok(Math.abs(positive[0][i] - input * Math.abs(Math.sin(angle))) < 0.001);
+    assert.ok(Math.abs(negative[0][i] + input * Math.abs(Math.sin(angle))) < 0.001);
+    assert.ok(Math.abs(partial[0][i] - input * (Math.sin(angle) + Math.abs(Math.sin(angle))) * 0.5) < 0.001);
+    assert.ok(Math.abs(spread[0][i] - spread[3][i] * Math.sin(2 * Math.PI * 95 * i / SAMPLE_RATE)) < 0.001);
+    assert.ok(Math.abs(spread[1][i] - spread[4][i] * Math.sin(2 * Math.PI * 105 * i / SAMPLE_RATE)) < 0.001);
+    assert.ok(Math.abs(dry[0][i] - dry[3][i]) < 0.001);
+  }
+});
+
+test('ring modulation creates sidebands, preserves stereo and follows mix, gain, bypass and order', async () => {
+  const patch = createLoadedPatch();
+  patch.layers[0].sampleRightKey = 'right';
+  Object.assign(patch.master, { drive: 0, hardness: 1, ceiling: 1, ringModEnabled: true, ringModFrequency: 100 });
+  const resources = { kick: sample, right: Float32Array.from(sample, (value) => value * 0.5) };
+  const render = async (changes) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({
+      numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE,
+      blockSize: 128, virtualFileSystem: resources
+    });
+    const state = { ...patch, master: { ...patch.master, ...changes }, gate: 0 };
+    await renderer.render(...buildDrumGraph(state, true));
+    renderer.process([], Array.from({ length: 22 }, () => new Float32Array(22016)));
+    await renderer.render(...buildDrumGraph({ ...state, gate: 1 }, true));
+    const output = Array.from({ length: 22 }, () => new Float32Array(35280));
+    renderer.process([], output);
+    return output;
+  };
+  const dry = await render({ ringModMix: 0 });
+  const wet = await render({ ringModMix: 1 });
+  const half = await render({ ringModMix: 0.5 });
+  const gain = await render({ ringModMix: 0, ringModGainDb: 6 });
+  const disabled = await render({ ringModEnabled: false, ringModGainDb: 6 });
+  const muted = await render({ ringModMute: true, ringModGainDb: 6 });
+  assert.deepEqual(disabled[0], muted[0]);
+  assert.deepEqual(disabled[20], disabled[21]);
+  for (let i = 5000; i < 30000; i += 97) {
+    assert.ok(Math.abs(half[0][i] - (dry[0][i] + wet[0][i]) * 0.5) < 1e-5);
+    assert.ok(Math.abs(wet[1][i] - wet[0][i] * 0.5) < 1e-5);
+    assert.ok(Math.abs(gain[0][i] - dry[0][i] * Math.pow(10, 6 / 20)) < 1e-5);
+    assert.ok(Math.abs(wet[21][i] - Math.abs(wet[0][i])) < 1e-5);
+  }
+  const amplitude = (frequency) => {
+    let real = 0, imaginary = 0;
+    for (let i = 8820; i < 35280; i += 1) {
+      const phase = 2 * Math.PI * frequency * i / SAMPLE_RATE;
+      real += wet[0][i] * Math.cos(phase);
+      imaginary += wet[0][i] * Math.sin(phase);
+    }
+    return Math.hypot(real, imaginary);
+  };
+  assert.ok(amplitude(340) > amplitude(440) * 20);
+  assert.ok(amplitude(540) > amplitude(440) * 20);
+  const before = await render({ busOrder: ['noise', 'convolve', 'ringMod', 'saturation', 'glue'] });
+  assert.deepEqual(before[21], before[13]);
+});
+
+test('ring carrier runs through gate release and restarts on retrigger', async () => {
+  const patch = createLoadedPatch();
+  Object.assign(patch.master, { drive: 0, hardness: 1, ceiling: 1, ringModEnabled: true, ringModFrequency: 100 });
+  const renderer = new OfflineRenderer();
+  await renderer.initialize({
+    numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE,
+    blockSize: 128, virtualFileSystem: { kick: sample }
+  });
+  const render = async (gate, length) => {
+    await renderer.render(...buildDrumGraph({ ...patch, gate }, true));
+    const outputs = Array.from({ length: 22 }, () => new Float32Array(length));
+    renderer.process([], outputs);
+    return outputs;
+  };
+  await render(0, 22016);
+  const attack = await render(1, 1408);
+  const release = await render(0, 1408);
+  const retrigger = await render(1, 1024);
+  for (const [outputs, offset] of [[attack, 0], [release, 1408], [retrigger, 0]]) {
+    for (let i = 20; i < outputs[0].length; i += 31) {
+      const expected = outputs[3][i] * Math.sin(2 * Math.PI * 100 * (i + offset) / SAMPLE_RATE);
+      assert.ok(Math.abs(outputs[0][i] - expected) < 0.001, `carrier mismatch at frame ${i + offset}`);
+    }
+  }
+});
+
+test('convolution graph changes rendered audio and mute bypasses it', async () => {
+  const patch = createLoadedPatch();
+  patch.master.convolveEnabled = true;
+  patch.master.convolveMix = 1;
+  const resources = { kick: sample, ...createBuiltinImpulses() };
+  const render = async (master) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({
+      numInputChannels: 0, numOutputChannels: 2, sampleRate: SAMPLE_RATE,
+      blockSize: 128, virtualFileSystem: resources
+    });
+    await renderer.render(...buildDrumGraph({ ...patch, master, gate: 1 }));
+    const outputs = [new Float32Array(8192), new Float32Array(8192)];
+    renderer.process([], outputs);
+    return outputs;
+  };
+  const wet = await render(patch.master);
+  const muted = await render({ ...patch.master, convolveMute: true });
+  const bypass = await render({ ...patch.master, convolveEnabled: false });
+  const legacy = await render({ ...patch.master, convolveEnabled: false, busOrder: ['noise', 'saturation', 'glue'] });
+  assert.deepEqual(muted, bypass);
+  assert.deepEqual(bypass, legacy);
+  assert.ok(wet[0].some((value, index) => Math.abs(value - bypass[0][index]) > 1e-4));
+  assert.ok(wet[0].some((value, index) => Math.abs(value - wet[1][index]) > 1e-4));
+});
+
+test('convolution extends rendered preview and WAV duration only while active', async () => {
+  const patch = createLoadedPatch();
+  const buffers = { kick: sample };
+  const dryDuration = getPatchDurationSec(patch, buffers);
+  Object.assign(patch.master, { convolveEnabled: true, convolveProfile: 'plate', convolvePredelay: 100, convolveMix: 1 });
+  const wetDuration = getPatchDurationSec(patch, buffers);
+  assert.ok(Math.abs(wetDuration - dryDuration - 0.55) < 1e-9);
+  const preview = await renderWaveformPreview(patch, buffers);
+  assert.equal(preview.durationSec, wetDuration);
+  assert.ok(preview.comparison.final.transient.some((value) => Math.abs(value) > 0));
+  patch.master.convolveMute = true;
+  assert.equal(getPatchDurationSec(patch, buffers), dryDuration);
+});
+
+test('master bus controls and tails do not change channel preview waveforms', async () => {
+  const patch = createLoadedPatch();
+  const baseline = await renderWaveformPreview(patch, { kick: sample });
+  Object.assign(patch.master, {
+    convolveEnabled: true,
+    convolveProfile: 'plate',
+    convolvePredelay: 120,
+    convolveMix: 1,
+    saturationEnabled: true,
+    saturationDrive: 20,
+    saturationMix: 0.8,
+    glueEnabled: true,
+    glueThreshold: -30,
+    glueGainDb: 6,
+    outputDb: -12
+  });
+  const processed = await renderWaveformPreview(patch, { kick: sample });
+  assert.notEqual(processed.durationSec, baseline.durationSec);
+  assert.notDeepEqual(processed.comparison.final.transient, baseline.comparison.final.transient);
+  assert.deepEqual(processed.comparison.channelPreviews, baseline.comparison.channelPreviews);
+  assert.deepEqual(processed.comparison.layerDurations, baseline.comparison.layerDurations);
+
+  patch.layers[0].inputDb = -6;
+  const channelEdited = await renderWaveformPreview(patch, { kick: sample });
+  assert.notDeepEqual(channelEdited.comparison.channelPreviews[0], baseline.comparison.channelPreviews[0]);
+});
+
+test('one channel preview is independent of another channel playback duration', async () => {
+  const patch = createLoadedPatch();
+  Object.assign(patch.layers[1], {
+    loaded: true,
+    sampleKey: 'snare',
+    sampleCount: SAMPLE_RATE / 2,
+    sampleRate: SAMPLE_RATE,
+    envelopePoints: [{ time: 0, value: 1 }, { time: 1, value: 1 }]
+  });
+  const buffers = { kick: sample, snare: sample.subarray(0, SAMPLE_RATE / 2) };
+  const baseline = await renderWaveformPreview(patch, buffers);
+  patch.layers[1].delayMs = 300;
+  const delayed = await renderWaveformPreview(patch, buffers);
+  assert.deepEqual(delayed.comparison.channelPreviews[0], baseline.comparison.channelPreviews[0]);
+  assert.notDeepEqual(delayed.comparison.channelPreviews[1], baseline.comparison.channelPreviews[1]);
+});
+
+test('convolution predelay delays only the wet audio in rendered previews', async () => {
+  const patch = createLoadedPatch();
+  const kick = new Float32Array(441);
+  kick.fill(0.5, 0, 100);
+  patch.layers[0].sampleCount = kick.length;
+  Object.assign(patch.master, { convolveEnabled: true, convolveMix: 1, convolvePredelay: 150 });
+  const preview = await renderWaveformPreview(patch, { kick }, 2048);
+  assert.ok(preview.comparison.final.transient.every((value) => Math.abs(value) < 1e-5));
+  assert.ok(preview.comparison.final.max.some((value, index) =>
+    index / 2048 * preview.durationSec > 0.15 && Math.abs(value) > 1e-4));
+});
+
+test('convolution meter lanes follow bypass and effect output', async () => {
+  const patch = createLoadedPatch();
+  Object.assign(patch.master, { convolveEnabled: true, convolveMix: 1 });
+  const render = async (muted) => {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({
+      numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE,
+      blockSize: 128, virtualFileSystem: { kick: sample, ...createBuiltinImpulses() }
+    });
+    await renderer.render(...buildDrumGraph({
+      ...patch, gate: 1, master: { ...patch.master, convolveMute: muted }
+    }, true));
+    const output = Array.from({ length: 22 }, () => new Float32Array(8192));
+    renderer.process([], output);
+    return output;
+  };
+  const wet = await render(false);
+  const muted = await render(true);
+  assert.ok(wet[18].some((value) => value > 0));
+  assert.ok(wet[19].some((value, index) => Math.abs(value - wet[18][index]) > 1e-4));
+  assert.deepEqual(muted[18], muted[19]);
+  assert.deepEqual(muted[13], muted[14]);
+  assert.deepEqual(muted[15], muted[16]);
+});
+
+test('patch undo and redo group gestures, preserve unrelated state, and discard abandoned redo', () => {
+  const history = createPatchHistory();
+  const initial = createDefaultState();
+  const changed = (state, pitch) => ({
+    ...state,
+    layers: state.layers.map((layer, index) => index ? layer : { ...layer, pitch })
+  });
+  const gesture = Symbol('drag');
+  const first = changed(initial, 4);
+  const last = changed(first, 9);
+  history.record(initial, first, gesture);
+  history.record(first, last, gesture);
+  const playing = { ...last, gate: 1, velocity: 0.4, noise: { ...last.noise, gain: 0.7 } };
+  const undone = history.undo(playing);
+  assert.equal(undone.layers[0].pitch, initial.layers[0].pitch);
+  assert.equal(undone.noise.gain, 0.7);
+  assert.equal(undone.gate, 1);
+  assert.equal(undone.velocity, 0.4);
+  assert.equal(history.undo(undone), null);
+  const redone = history.redo(undone);
+  assert.equal(redone.layers[0].pitch, 9);
+  const newEdit = changed(undone, 2);
+  history.undo(redone);
+  history.record(undone, newEdit);
+  assert.equal(history.redo(newEdit), null);
+});
+
+test('patch history preserves stereo swaps and invalidates only automated parameters', () => {
+  const history = createPatchHistory();
+  const initial = createDefaultState();
+  const stereo = {
+    ...initial,
+    layers: initial.layers.map((layer, index) => index === 0
+      ? { ...layer, loaded: true, sampleKey: 'left', sampleRightKey: 'right' } : layer)
+  };
+  const swapped = { ...stereo, layers: swapLayerSamples(stereo.layers, 0, 1) };
+  history.record(stereo, swapped);
+  const edited = { ...swapped, master: { ...swapped.master, drive: 8, ceiling: 0.5 } };
+  history.record(swapped, edited);
+  history.invalidate(['master', 'drive']);
+  const automated = { ...edited, master: { ...edited.master, drive: 12 } };
+  const undoControls = history.undo(automated);
+  assert.equal(undoControls.master.drive, 12);
+  assert.equal(undoControls.master.ceiling, swapped.master.ceiling);
+  const undoSwap = history.undo(undoControls);
+  assert.equal(undoSwap.layers[0].sampleKey, 'left');
+  assert.equal(undoSwap.layers[0].sampleRightKey, 'right');
+  const redoSwap = history.redo(undoSwap);
+  assert.equal(redoSwap.layers[1].sampleKey, 'left');
+  assert.equal(redoSwap.layers[1].sampleRightKey, 'right');
+  history.clear();
+  assert.equal(history.undo(redoSwap), null);
+  assert.equal(history.redo(redoSwap), null);
+});
+
+test('undo shortcuts leave text editing alone and support Mac and Windows redo', () => {
+  const event = { key: 'z', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, target: { tagName: 'BUTTON' } };
+  assert.equal(getHistoryShortcut(event), 'undo');
+  assert.equal(getHistoryShortcut({ ...event, key: 'Z', shiftKey: true }), 'redo');
+  assert.equal(getHistoryShortcut({ ...event, metaKey: false, ctrlKey: true, key: 'y' }), 'redo');
+  assert.equal(getHistoryShortcut({ ...event, target: { tagName: 'INPUT', type: 'text' } }), null);
+  assert.equal(getHistoryShortcut({ ...event, target: { tagName: 'TEXTAREA' } }), null);
+  assert.equal(getHistoryShortcut({ ...event, target: { isContentEditable: true } }), null);
+  assert.equal(getHistoryShortcut({ ...event, target: { tagName: 'INPUT', type: 'range' } }), 'undo');
+  assert.equal(getHistoryShortcut({ ...event, target: { tagName: 'SELECT' } }), 'undo');
+  assert.equal(getHistoryShortcut({ ...event, defaultPrevented: true }), null);
+});
+
 test('waveform viewer switches to the trace and shows source and output time axes', async () => {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
   try {
-    const { default: App, AboutDialog, BrandSignature, WavCopyButton, hasPatchChanges, isInitialPatch, matchesReferencedSample, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const { default: App, AboutDialog, BrandSignature, ModuleControls, ModuleSettingsDialog, WavCopyButton, getHelpSettings, hasPatchChanges, isInitialPatch, matchesReferencedSample, observeNativeEditorHeight, reorderBusModules } = await server.ssrLoadModule('/src/App.jsx');
+    const { HitButton, AuditionCloseButton } = await server.ssrLoadModule('/src/components/HitButton.jsx');
+    assert.deepEqual(getHelpSettings(), { hover: false, dspInfo: true });
+    assert.deepEqual(getHelpSettings({ hover: true, dspInfo: false }), { hover: true, dspInfo: false });
+    assert.deepEqual(getHelpSettings({ hover: 'true', dspInfo: null }), { hover: false, dspInfo: true });
     const initialPatch = createDefaultState();
     assert.equal(isInitialPatch(initialPatch), true);
     assert.equal(isInitialPatch({ ...initialPatch, layers: initialPatch.layers.map((layer, index) =>
@@ -72,6 +479,45 @@ test('waveform viewer switches to the trace and shows source and output time axe
     const app = renderToStaticMarkup(React.createElement(App));
     assert.match(app, /data-theme="golden-nugget"/);
     assert.match(app, /data-border-trace="normal" data-border-trace-speed="normal"/);
+    assert.match(app, /Hover or focus a knob or control/);
+    assert.doesNotMatch(app, /role="tooltip"/);
+    assert.match(app, /aria-label="Trigger hit \(Space or MIDI\)" aria-keyshortcuts="Space"/);
+    assert.match(app, /class="topbar-hit-label">HIT<\/span><span class="topbar-hit-hint">SPACE \/ MIDI<\/span>/);
+    let hits = 0;
+    let closes = 0;
+    const hitButton = HitButton({ onHit: () => { hits += 1; } });
+    hitButton.props.onMouseDown({ button: 0 });
+    hitButton.props.onClick({ detail: 1 });
+    hitButton.props.onClick({ detail: 0 });
+    assert.equal(hits, 2);
+    const dialog = ModuleSettingsDialog({
+      title: 'SATURATION', onHit: () => { hits += 1; }, onClose: () => { closes += 1; }, onReset: () => {}
+    }).props.children;
+    const dialogMarkup = renderToStaticMarkup(dialog);
+    assert.match(dialogMarkup, /aria-label="Trigger hit \(Space or MIDI\)"[^>]*autofocus/);
+    assert.doesNotMatch(dialogMarkup, /RESET KNOBS/);
+    const controls = (props) => renderToStaticMarkup(React.createElement(ModuleControls, {
+      name: 'saturation', muted: true, onMute: () => {}, onReset: () => {}, ...props
+    }));
+    assert.match(controls(), /aria-label="Mute saturation" aria-pressed="true"/);
+    assert.match(controls(), /aria-label="Reset saturation knobs to defaults"/);
+    const noiseControls = controls({ name: 'noise synth', noise: createDefaultState().noise, onNoiseChange: () => {} });
+    assert.match(noiseControls, /aria-label="Reset noise gain envelope"/);
+    assert.match(noiseControls, /role="slider" tabindex="0" aria-label="NOISE play delay" aria-valuemin="0" aria-valuemax="1000"/);
+    assert.match(noiseControls, /aria-label="NOISE play delay exact value in ms"/);
+    assert.doesNotMatch(controls(), /aria-label="NOISE play delay"/);
+    let prevented = false;
+    const closeButton = AuditionCloseButton({ onHit: () => { hits += 1; }, onClose: () => { closes += 1; } });
+    closeButton.props.onKeyDown({
+      code: 'Space', preventDefault: () => { prevented = true; }
+    });
+    assert.equal(prevented, true);
+    assert.equal(hits, 3);
+    assert.equal(closes, 0);
+    dialog.props.onKeyDown({
+      target: { closest: () => dialog }, currentTarget: dialog, key: 'Escape', preventDefault: () => {}
+    });
+    assert.equal(closes, 1);
     const appearanceWindow = globalThis.window;
     try {
       globalThis.window = {
@@ -101,17 +547,26 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.equal(reorderBusModules(order, 'noise', 'noise'), order);
     assert.equal(reorderBusModules(order, 'noise', undefined), order);
     assert.deepEqual(order, ['noise', 'saturation', 'glue']);
-    assert.match(app, /aria-label="Reorder Noise synth, position 1 of 3"/);
-    assert.match(app, /aria-label="Reorder Saturation, position 2 of 3"/);
-    assert.match(app, /aria-label="Reorder Glue compressor, position 3 of 3"/);
+    assert.match(app, /aria-label="Reorder Noise synth, position 1 of 5"/);
+    assert.match(app, /aria-label="Reorder Ring modulation, position 2 of 5"/);
+    assert.match(app, /aria-label="Reorder Convolution, position 3 of 5"/);
+    assert.match(app, /aria-label="Reorder Saturation, position 4 of 5"/);
+    assert.match(app, /aria-label="Reorder Glue compressor, position 5 of 5"/);
     assert.doesNotMatch(app, /aria-label="Move (?:noise|saturation|glue) (?:earlier|later)/);
     assert.match(app, /aria-label="Enable noise synth" aria-pressed="false"/);
     assert.doesNotMatch(app, /aria-label="Open noise waveform editor"/);
     assert.match(app, /aria-label="Enable master saturation" aria-pressed="false"[^>]*>OFF · ENABLE/);
+    assert.match(app, /aria-label="Enable convolution" aria-pressed="false"[^>]*>OFF · ENABLE/);
     assert.match(app, /aria-label="Enable glue compressor" aria-pressed="false"[^>]*>OFF · ENABLE/);
-    assert.match(app, /aria-label="Noise synth settings" aria-haspopup="dialog" disabled/);
-    assert.match(app, /aria-label="Saturation settings" aria-haspopup="dialog" disabled/);
-    assert.match(app, /aria-label="Glue compressor settings" aria-haspopup="dialog" disabled/);
+    assert.match(app, /aria-label="Enable ring modulation" aria-pressed="false"[^>]*>OFF · ENABLE/);
+    assert.match(app, /aria-label="Noise synth settings" aria-haspopup="dialog"[^>]*disabled/);
+    assert.match(app, /aria-label="Saturation settings" aria-haspopup="dialog"[^>]*disabled/);
+    assert.match(app, /aria-label="Convolution settings" aria-haspopup="dialog"[^>]*disabled/);
+    assert.match(app, /aria-label="Glue compressor settings" aria-haspopup="dialog"[^>]*disabled/);
+    assert.match(app, /aria-label="Ring modulation settings" aria-haspopup="dialog"[^>]*disabled/);
+    assert.match(app, /class="module-title-trigger" aria-label="Noise synth settings"/);
+    assert.match(app, /class="module-title-trigger" aria-label="Saturation settings"/);
+    assert.doesNotMatch(app, /module-settings-button/);
     assert.match(app, /aria-label="Expand OUTPUT SCOPE waveform view"/);
     assert.doesNotMatch(app, /aria-label="(?:SAT DRIVE|THRESH):/);
     const { GainReductionMeter } = await server.ssrLoadModule('/src/components/EffectMeters.jsx');
@@ -129,6 +584,8 @@ test('waveform viewer switches to the trace and shows source and output time axe
       assert.match(app, new RegExp(`aria-label="Load sample for CH 0${index}"`));
       assert.match(app, new RegExp(`aria-label="CH 0${index} clip gain"`));
       assert.match(app, new RegExp(`aria-label="CH 0${index} clip gain exact value in dB"`));
+      assert.match(app, new RegExp(`role="slider" tabindex="0" aria-label="CH 0${index} play delay"`));
+      assert.match(app, new RegExp(`aria-label="CH 0${index} play delay exact value in ms"`));
     }
     assert.doesNotMatch(app, /channel-extra-controls/);
     const { ChannelStrip } = await server.ssrLoadModule('/src/components/ChannelStrip.jsx');
@@ -179,6 +636,73 @@ test('waveform viewer switches to the trace and shows source and output time axe
         setTimeout,
         clearTimeout
       };
+      const echoedBridge = new LayerForgeBridge();
+      const echoedChanges = [];
+      echoedBridge.pluginStateLoaded = true;
+      echoedBridge.resumeParameterUpdates();
+      echoedBridge.onParameterChange = (id, value) => echoedChanges.push([id, value]);
+      echoedBridge.setHostParameter('l0_pitch', 2);
+      const firstSequence = messages.shift().payload.sequence;
+      echoedBridge.setHostParameter('l0_pitch', 5);
+      const secondSequence = messages.shift().payload.sequence;
+      assert.ok(secondSequence > firstSequence);
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 2, sequence: firstSequence, revision: 0 } });
+      assert.deepEqual(echoedChanges, []);
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 5, sequence: secondSequence, revision: 0 } });
+      assert.deepEqual(echoedChanges, [['l0_pitch', 5]]);
+      echoedBridge.setHostParameter('l0_pitch', 0);
+      const undoSequence = messages.shift().payload.sequence;
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 5, sequence: secondSequence, revision: 0 } });
+      assert.deepEqual(echoedChanges, [['l0_pitch', 5]]);
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 8, sequence: undoSequence, revision: 0 } });
+      assert.deepEqual(echoedChanges, [['l0_pitch', 5], ['l0_pitch', 8]]);
+      echoedBridge.nativeStateRestoredListener({ revision: 1 });
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 3, sequence: undoSequence, revision: 0 } });
+      echoedBridge.stateRevision = 1;
+      echoedBridge.resumeParameterUpdates();
+      assert.deepEqual(echoedChanges, [['l0_pitch', 5], ['l0_pitch', 8]]);
+      echoedBridge.nativeParametersListener({ l0_pitch: { value: 4, sequence: firstSequence, revision: 1 } });
+      assert.deepEqual(echoedChanges.at(-1), ['l0_pitch', 4]);
+
+      const knobBridge = new LayerForgeBridge();
+      knobBridge.pluginStateLoaded = true;
+      knobBridge.resumeParameterUpdates();
+      const knobHistory = createPatchHistory();
+      const gesture = Symbol('knob drag');
+      let knobState = createDefaultState();
+      const setPitch = (pitch) => ({
+        ...knobState,
+        layers: knobState.layers.map((layer, index) => index ? layer : { ...layer, pitch })
+      });
+      knobBridge.onParameterChange = (id, value) => {
+        if (id === 'l0_pitch' && knobState.layers[0].pitch !== value) {
+          knobHistory.invalidate(['layers', 0, 'pitch']);
+          knobState = setPitch(value);
+        }
+      };
+      const editPitch = (pitch) => {
+        const next = setPitch(pitch);
+        knobBridge.setHostParameter('l0_pitch', pitch);
+        knobHistory.record(knobState, next, gesture);
+        knobState = next;
+        return messages.shift().payload.sequence;
+      };
+      const oldDrag = editPitch(2);
+      editPitch(5);
+      knobBridge.nativeParametersListener({ l0_pitch: { value: 2, sequence: oldDrag, revision: 0 } });
+      knobState = knobHistory.undo(knobState);
+      assert.equal(knobState.layers[0].pitch, 0);
+      knobBridge.setHostParameter('l0_pitch', 0);
+      const undoAck = messages.shift().payload.sequence;
+      knobBridge.nativeParametersListener({ l0_pitch: { value: 5, sequence: oldDrag, revision: 0 } });
+      knobState = knobHistory.redo(knobState);
+      assert.equal(knobState.layers[0].pitch, 5);
+      knobBridge.setHostParameter('l0_pitch', 5);
+      const redoAck = messages.shift().payload.sequence;
+      knobBridge.nativeParametersListener({ l0_pitch: { value: 0, sequence: undoAck, revision: 0 } });
+      knobBridge.nativeParametersListener({ l0_pitch: { value: 8, sequence: redoAck, revision: 0 } });
+      assert.equal(knobState.layers[0].pitch, 8);
+      assert.equal(knobHistory.undo(knobState), null);
       let prevented = false;
       BrandSignature({ isNativePlugin: true }).props.onClick({ preventDefault: () => { prevented = true; } });
       assert.equal(prevented, true);
@@ -342,6 +866,10 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.match(changedChannel, /aria-label="HPF: 100Hz/);
     assert.match(changedChannel, /aria-label="PHASE: 0\.0100/);
     assert.doesNotMatch(changedChannel, /aria-label="PLAY DLY:/);
+    assert.match(changedChannel, /class="knob-grid channel-knob-grid" id="channel-knobs-0"/);
+    assert.match(changedChannel, /aria-controls="channel-knobs-0"/);
+    assert.doesNotMatch(changedChannel, /class="knob-grid channel-extra-controls"/);
+    assert.doesNotMatch(changedChannel, /channel-extra-controls-label/);
     assert.match(changedChannel, /strip-channel is-empty/);
     assert.match(changedChannel, /class="channel-load-indicator" role="img" aria-label="Channel 1 empty"/);
     const loadedPatch = createLoadedPatch();
@@ -383,9 +911,12 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.ok(waveformPath(noisePreview));
     assert.match(noisePreview, /aria-label="NOISE waveform detail"/);
     assert.match(noisePreview, /aria-label="NOISE envelope point 1"/);
-    assert.match(noisePreview, /aria-label="Reset noise gain envelope"/);
     assert.doesNotMatch(noisePreview, /aria-label="Open noise waveform editor"/);
     assert.equal(waveformPath(noiseDuringTrace), waveformPath(noisePreview));
+    const delayedNoise = renderToStaticMarkup(React.createElement(NoiseWaveform, {
+      ...noiseProps, noise: { ...noiseProps.noise, delayMs: 250 }, playbackId: 1
+    }));
+    assert.match(delayedNoise, /animation-delay:0\.25s/);
     assert.match(channelWithPreview, /class="waveform-amplitude-fill"/);
     assert.doesNotMatch(channelWithPreview, /channel-output-preview|DSP OUT|DSP · SRC/);
     assert.match(channelWithPreview, /aria-label="Auto-align phase for channel 1"/);
@@ -402,7 +933,8 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(channelWithPreview, /aria-label="Show processed waveform for channel 1"/);
     assert.doesNotMatch(channelWithPreview, />ALIGN PHASE</);
     assert.doesNotMatch(app, /HIDE EMPTY \/ MUTED/);
-    assert.match(app, /aria-pressed="true"[^>]*>TRACE ARMED/);
+    assert.match(app, /aria-pressed="true" aria-label="TRACE ARMED"/);
+    assert.match(app, /class="waveform-trace-label">TRACE<\/span><span class="waveform-trace-status">ARMED<\/span>/);
     assert.match(app, /aria-label="Post-master output peak"[^>]*aria-valuemin="-60"[^>]*aria-valuemax="0"/);
     assert.doesNotMatch(app, /aria-label="Output meter scale"/);
     assert.match(app, /RENDERING/);
@@ -419,6 +951,12 @@ test('waveform viewer switches to the trace and shows source and output time axe
     assert.doesNotMatch(renderToStaticMarkup(help), /<button/);
     const disabledHelp = renderToStaticMarkup(React.createElement(HelpEnabledContext.Provider, { value: false }, help));
     assert.equal(disabledHelp, 'CONTROL');
+    const { RotaryKnob } = await server.ssrLoadModule('/src/components/RotaryKnob.jsx');
+    const knob = renderToStaticMarkup(React.createElement(RotaryKnob, {
+      label: 'PITCH', value: 0, min: -12, max: 12, description: 'Changes sample pitch.', onChange: () => {}
+    }));
+    assert.match(knob, /data-dsp-help="Changes sample pitch\."/);
+    assert.match(knob, /role="tooltip"[^>]*>PITCH: Drag vertically to adjust; Shift-drag for fine control\. Click the value to type; double-click the knob to reset\./);
 
     const previousWindow = globalThis.window;
     const previousObserver = globalThis.ResizeObserver;
@@ -427,9 +965,14 @@ test('waveform viewer switches to the trace and shows source and output time axe
     let observed;
     let disconnected = false;
     let height = 571.2;
+    const editorElement = {
+      style: { zoom: '', setProperty: () => {}, removeProperty: () => {} },
+      get offsetHeight() { return height; }
+    };
     const reported = [];
     try {
       globalThis.window = {
+        innerWidth: 1120,
         setTimeout: (callback) => { scheduled = callback; return 1; },
         clearTimeout: () => { scheduled = null; },
         addEventListener: (_, callback) => { resized = callback; },
@@ -440,17 +983,25 @@ test('waveform viewer switches to the trace and shows source and output time axe
         observe() {}
         disconnect() { disconnected = true; }
       };
-      const stop = observeNativeEditorHeight({ getBoundingClientRect: () => ({ height }) }, (value) => reported.push(value));
+      const stop = observeNativeEditorHeight(editorElement, (value) => reported.push(value));
       scheduled();
       height = 715.2;
       observed();
       scheduled();
       observed();
       scheduled();
+      globalThis.window.innerWidth = 896;
       resized();
       scheduled();
-      assert.deepEqual(reported, [572, 716, 716]);
+      assert.equal(editorElement.style.zoom, '0.8');
+      assert.deepEqual(reported, [572, 716, 573]);
+      globalThis.window.innerWidth = 1400;
+      resized();
+      scheduled();
+      assert.equal(editorElement.style.zoom, '1');
+      assert.equal(reported.at(-1), 716);
       stop();
+      assert.equal(editorElement.style.zoom, '');
       assert.equal(disconnected, true);
       assert.equal(resized, null);
     } finally {
@@ -460,7 +1011,25 @@ test('waveform viewer switches to the trace and shows source and output time axe
       else globalThis.ResizeObserver = previousObserver;
     }
 
-    const { WaveformViewer } = await server.ssrLoadModule('/src/components/WaveformViewer.jsx');
+    const { WaveformViewer, getWaveformViewCoordinates } = await server.ssrLoadModule('/src/components/WaveformViewer.jsx');
+    const oldDOMPoint = globalThis.DOMPoint;
+    try {
+      globalThis.DOMPoint = class {
+        constructor(x, y) { this.x = x; this.y = y; }
+        matrixTransform(matrix) {
+          return { x: this.x * matrix.a + matrix.e, y: this.y * matrix.d + matrix.f };
+        }
+      };
+      const svg = { getScreenCTM: () => ({
+        a: 0.5, b: 0, c: 0, d: 0.5,
+        inverse: () => ({ a: 2, d: 2, e: -40, f: -60 })
+      }) };
+      assert.deepEqual(getWaveformViewCoordinates(svg, { clientX: 70, clientY: 80 }), { x: 100, y: 100 });
+      assert.equal(getWaveformViewCoordinates({ getScreenCTM: () => null }, { clientX: 0, clientY: 0 }), null);
+    } finally {
+      if (oldDOMPoint === undefined) delete globalThis.DOMPoint;
+      else globalThis.DOMPoint = oldDOMPoint;
+    }
     const props = {
       title: 'LAYER SUM', compact: true, previewStatus: 'DSP RENDER', durationOverride: 1,
       peaksOverride: [0.25], fitAmplitude: true, traceEnabled: true,
@@ -470,6 +1039,12 @@ test('waveform viewer switches to the trace and shows source and output time axe
     const render = (overrides) => renderToStaticMarkup(React.createElement(WaveformViewer, { ...props, ...overrides }));
     const live = render({ liveTrace: trace });
     assert.match(live, /class="waveform-live-trace"/);
+    assert.match(live, /aria-label="TRACE CAPTURING"/);
+    const lastHit = render({ liveTrace: { ...trace, status: 'LAST HIT', limited: true } });
+    assert.match(lastHit, /aria-label="TRACE LAST HIT \(4S\)"/);
+    assert.match(lastHit, /class="waveform-trace-status">LAST HIT \(4S\)<\/span>/);
+    assert.match(render({ liveTrace: { status: 'GAP' } }), /aria-label="TRACE GAP - RETRIGGER"/);
+    assert.match(render({ traceEnabled: false }), /aria-label="TRACE OFF"/);
     assert.doesNotMatch(live, /aria-label="LAYER SUM waveform horizontal scroll"/);
     assert.doesNotMatch(live, /waveform-output-fill/);
     assert.match(live, /LAYER SUM live output waveform/);
@@ -577,7 +1152,7 @@ test('waveform viewer switches to the trace and shows source and output time axe
     const detailedPath = detailedEditor.match(/<path d="([^"]*)" class="waveform-amplitude-fill"/)?.[1];
     assert.equal((detailedPath?.match(/L/g) || []).length, 8195);
 
-    const { SumComparison } = await server.ssrLoadModule('/src/components/LayerSumViewer.jsx');
+    const { LayerSumViewer, SumComparison } = await server.ssrLoadModule('/src/components/LayerSumViewer.jsx');
     const { UI_THEMES, getUiTheme } = await server.ssrLoadModule('/src/uiThemes.js');
     assert.ok(UI_THEMES.some((theme) => theme.id === 'golden-nugget'));
     const highContrast = getUiTheme('high-contrast');
@@ -595,23 +1170,125 @@ test('waveform viewer switches to the trace and shows source and output time axe
     const waveform = { min: [-0.5], max: [0.5], transient: [0.5, -0.5] };
     const patch = createDefaultState();
     const comparison = { final: waveform, preMaster: waveform, layers: patch.layers.map(() => waveform), noise: waveform, sampleRate: 1000 };
+    const scope = {
+      sum: { ...waveform, comparison, durationSec: 1 }, theme: UI_THEMES[0], layers: patch.layers,
+      noise: patch.noise, master: patch.master, resolution: 512, onResolutionChange: () => {},
+      onTraceEnabledChange: () => {}, onExpandedChange: () => {}
+    };
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(LayerSumViewer, { ...scope, expanded: false })),
+      /EXPANDED OUTPUT SCOPE/);
+    assert.match(renderToStaticMarkup(React.createElement(LayerSumViewer, { ...scope, expanded: true })),
+      /EXPANDED OUTPUT SCOPE/);
     const liveComparison = renderToStaticMarkup(React.createElement(SumComparison, {
-      comparison, durationSec: 1, capturedSec: 0.25, layers: patch.layers,
+      comparison, durationSec: 1, sourceDurationSec: 0.5, capturedSec: 0.25, layers: patch.layers,
       noise: patch.noise, theme: UI_THEMES[0], windowMs: 0, live: true
     }));
-    assert.match(liveComparison, /LIVE TRACE · FULL HIT/);
+    assert.match(liveComparison, /LIVE TRACE · SOURCES/);
     assert.match(liveComparison, /aria-label="CH 03 waveform"/);
     assert.match(liveComparison, /L127\.5,/);
+    assert.match(liveComparison, /viewBox="5 0 245 112"/);
+    assert.match(liveComparison, /500\.0 MS/);
+    const fullComparison = renderToStaticMarkup(React.createElement(SumComparison, {
+      comparison, durationSec: 1, sourceDurationSec: 0.5, layers: patch.layers,
+      noise: patch.noise, theme: UI_THEMES[0], windowMs: -1
+    }));
+    assert.match(fullComparison, /DSP PREVIEW · FULL RENDER/);
+    assert.match(fullComparison, /viewBox="5 0 490 112"/);
+    assert.match(fullComparison, /1000\.0 MS/);
+    const limitedCapture = renderToStaticMarkup(React.createElement(SumComparison, {
+      comparison, durationSec: 1, sourceDurationSec: 2, capturedSec: 1, layers: patch.layers,
+      noise: patch.noise, theme: UI_THEMES[0], windowMs: 0, live: true
+    }));
+    assert.match(limitedCapture, /viewBox="5 0 980 112"/);
+    assert.match(limitedCapture, /2000\.0 MS/);
+    assert.match(limitedCapture, /audio beyond the capture is not shown/);
+    const fullCapture = renderToStaticMarkup(React.createElement(SumComparison, {
+      comparison, durationSec: 1, sourceDurationSec: 0, capturedSec: 1, layers: patch.layers,
+      noise: patch.noise, theme: UI_THEMES[0], windowMs: -1, live: true
+    }));
+    assert.match(fullCapture, /LIVE TRACE · FULL CAPTURE/);
+    assert.match(fullCapture, /1000\.0 MS/);
     const transientComparison = renderToStaticMarkup(React.createElement(SumComparison, {
       comparison, durationSec: 1, capturedSec: 0.25, layers: patch.layers,
       noise: patch.noise, theme: UI_THEMES[0], windowMs: 5, live: true
     }));
     assert.match(transientComparison, /LIVE TRACE · SAMPLE-LEVEL · FIRST 5 MS/);
     assert.match(transientComparison, /class="sum-comparison-fill"/);
-    assert.match(transientComparison, /Comparison output time in milliseconds/);
+    for (const label of ['FINAL OUTPUT', 'PRE-MASTER', 'CH 01', 'CH 02', 'CH 03', 'NOISE']) {
+      assert.match(transientComparison, new RegExp(`aria-label="${label} output time in milliseconds"`));
+    }
+    assert.match(transientComparison, /AFTER BUS EFFECTS \+ OUTPUT/);
+    assert.match(transientComparison, /SOURCES BEFORE BUS EFFECTS/);
+    const { SignalFlowDiagram } = await server.ssrLoadModule('/src/components/SignalFlowDiagram.jsx');
+    patch.layers[0].loaded = true;
+    patch.layers[1].loaded = true;
+    patch.layers[1].mute = true;
+    patch.noise.enabled = true;
+    patch.noise.solo = true;
+    Object.assign(patch.master, {
+      busOrder: ['glue', 'noise', 'saturation', 'ringMod', 'convolve'],
+      glueEnabled: true, glueMute: true, saturationEnabled: true, ringModEnabled: true
+    });
+    const flow = renderToStaticMarkup(React.createElement(SignalFlowDiagram, {
+      layers: patch.layers, noise: patch.noise, master: patch.master, theme: UI_THEMES[0]
+    }));
+    assert.match(flow, /data-flow-status="SOLO EXCLUDED"[^>]*>[\s\S]*?<strong>CH 01<\/strong>/);
+    assert.match(flow, /data-flow-status="MUTED"[^>]*>[\s\S]*?<strong>CH 02<\/strong>/);
+    assert.match(flow, /data-flow-status="ROUTED"[^>]*>[\s\S]*?<strong>NOISE SYNTH<\/strong>/);
+    assert.match(flow, /data-flow-status="MUTED"[^>]*>[\s\S]*?<strong>GLUE COMPRESSOR<\/strong>/);
+    assert.match(flow, /data-flow-status="ACTIVE"[^>]*>[\s\S]*?<strong>SATURATION<\/strong>/);
+    assert.match(flow, /data-flow-status="ACTIVE"[^>]*>[\s\S]*?<strong>RING MOD<\/strong>/);
+    assert.ok(flow.indexOf('GLUE COMPRESSOR</strong>') < flow.indexOf('NOISE INSERT</strong>'));
+    assert.ok(flow.indexOf('NOISE INSERT</strong>') < flow.indexOf('SATURATION</strong>'));
+    assert.ok(flow.indexOf('SATURATION</strong>') < flow.indexOf('RING MOD</strong>'));
+    assert.ok(flow.indexOf('RING MOD</strong>') < flow.indexOf('CONVOLUTION</strong>'));
+    assert.ok(flow.indexOf('CONVOLUTION</strong>') < flow.indexOf('MASTER CLIPPER</strong>'));
   } finally {
     await server.close();
   }
+});
+
+test('playable source duration follows audible trim, pitch, delay and solo', () => {
+  const state = createDefaultState();
+  Object.assign(state.layers[0], {
+    loaded: true, sampleKey: 'kick', sampleRate: SAMPLE_RATE,
+    trimStart: 0.1, trimEnd: 0.9, pitch: 12, delayMs: 200
+  });
+  const tracks = () => getLayerPlaybackInfo(state, { kick: sample }, {});
+  assert.ok(Math.abs(getPlayableSourceDurationSec(state, tracks()) - 0.6) < 1e-8);
+  state.layers[0].phaseOffset = 0.05;
+  assert.ok(Math.abs(getPlayableSourceDurationSec(state, tracks()) - 0.62) < 1e-8);
+  state.layers[0].phaseOffset = -0.05;
+  assert.ok(Math.abs(getPlayableSourceDurationSec(state, tracks()) - 0.58) < 1e-8);
+  state.layers[0].phaseOffset = 0;
+
+  Object.assign(state.noise, { enabled: true, gain: 0.5, decay: 2, trimEnd: 0.25, delayMs: 500 });
+  assert.ok(Math.abs(getPlayableSourceDurationSec(state, tracks()) - 1.004) < 1e-8);
+  state.layers[0].solo = true;
+  assert.ok(Math.abs(getPlayableSourceDurationSec(state, tracks()) - 0.6) < 1e-8);
+  state.layers[0].mute = true;
+  assert.equal(getPlayableSourceDurationSec(state, tracks()), 0);
+});
+
+test('comparison cursor reads stereo samples and peak bins without inventing uncaptured data', () => {
+  const waveform = {
+    min: [-0.9, -0.2], max: [0.4, 0.8], binCount: 4,
+    transient: [-0.2, 0.3], transientMax: [0.7, -0.6]
+  };
+  assert.deepEqual(getComparisonCursorRange(waveform, 0, 1, 0.5, 1000, 2), { min: -0.2, max: 0.7 });
+  assert.deepEqual(getComparisonCursorRange(waveform, 0.002, 1, 0.5, 1000, 2), { min: -0.6, max: 0.3 });
+  assert.equal(getComparisonCursorRange(waveform, 0.003, 1, 0.5, 1000, 5), null);
+  assert.deepEqual(getComparisonCursorRange(waveform, 0.4, 1, 0.5, 1000, 0), { min: -0.2, max: 0.8 });
+  assert.equal(getComparisonCursorRange(waveform, 0.5, 1, 0.5, 1000, 0), null);
+  assert.equal(getComparisonCursorRange(waveform, 1.1, 1, 1, 1000, 0), null);
+  const complete = { ...waveform, min: [-0.9, -0.2, 0, -0.1], max: [0.4, 0.8, 0, 0.2] };
+  assert.deepEqual(getComparisonCursorRange(complete, 1, 1, 1, 1000, 0), { min: -0.1, max: 0.2 });
+  assert.deepEqual(getComparisonCursorRange({ ...waveform, transientMax: undefined }, 0, 1, 1, 1000, 2),
+    { min: -0.2, max: -0.2 });
+  const samples = Array.from({ length: 221 }, (_, index) => index);
+  const stepTime = (15 / 221) * (221 / 44100);
+  assert.deepEqual(getComparisonCursorRange({ transient: samples }, stepTime, 1, 1, 44100, 221),
+    { min: 15, max: 15 });
 });
 
 test('swapping samples moves their trims while preserving channel processing and state', () => {
@@ -696,12 +1373,12 @@ test('default channels reproduce stereo samples from the first frame and remain 
   });
   const renderer = new OfflineRenderer();
   await renderer.initialize({
-    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { left, right }
   });
   const render = async (gate, length) => {
     await renderer.render(...buildDrumGraph({ ...state, gate }, true));
-    const outputs = Array.from({ length: 18 }, () => new Float32Array(length));
+    const outputs = Array.from({ length: 22 }, () => new Float32Array(length));
     renderer.process([], outputs);
     return outputs;
   };
@@ -719,11 +1396,11 @@ test('default channels reproduce stereo samples from the first frame and remain 
 
   const coldRenderer = new OfflineRenderer();
   await coldRenderer.initialize({
-    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { left, right }
   });
   await coldRenderer.render(...buildDrumGraph({ ...state, gate: 1 }, true));
-  const cold = Array.from({ length: 18 }, () => new Float32Array(128));
+  const cold = Array.from({ length: 22 }, () => new Float32Array(128));
   coldRenderer.process([], cold);
   const referenceRenderer = new OfflineRenderer();
   await referenceRenderer.initialize({ numInputChannels: 0, numOutputChannels: 1, sampleRate: SAMPLE_RATE, blockSize: 128 });
@@ -745,12 +1422,12 @@ test('sample retrigger preserves a fading previous voice without fading in the n
   });
   const renderer = new OfflineRenderer();
   await renderer.initialize({
-    numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE, blockSize: 128,
+    numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE, blockSize: 128,
     virtualFileSystem: { kick: samples }
   });
   const render = async (gate, length) => {
     await renderer.render(...buildDrumGraph({ ...state, gate }, true));
-    const outputs = Array.from({ length: 18 }, () => new Float32Array(length));
+    const outputs = Array.from({ length: 22 }, () => new Float32Array(length));
     renderer.process([], outputs);
     return outputs[3];
   };
@@ -872,6 +1549,35 @@ test('noise waveform envelope and trim shape the rendered noise and survive rest
   assert.deepEqual(restorePatchState({ noise: {} }).noise.envelopePoints, createDefaultState().noise.envelopePoints);
 });
 
+test('noise playback delay shifts the rendered trim window and extends WAV and preview duration', async () => {
+  const patch = createDefaultState();
+  Object.assign(patch.noise, { enabled: true, delayMs: 30, trimStart: 0.2, trimEnd: 0.6 });
+  const preview = await renderWaveformPreview(patch, {});
+  const samples = preview.comparison.noise.transient;
+  const noiseDuration = patch.noise.decay + 0.016;
+  const start = 0.03 + noiseDuration * 0.2;
+  const end = 0.03 + noiseDuration * 0.6;
+  assert.ok(samples.slice(0, Math.floor((start - 0.001) * SAMPLE_RATE)).every((value) => Math.abs(value) < 1e-8));
+  assert.ok(samples.slice(Math.ceil((start + 0.002) * SAMPLE_RATE), Math.floor((end - 0.002) * SAMPLE_RATE))
+    .some((value) => Math.abs(value) > 0.001));
+  assert.ok(samples.slice(Math.ceil((end + 0.001) * SAMPLE_RATE)).every((value) => Math.abs(value) < 1e-8));
+  assert.equal(restorePatchState(serializePatchState(patch)).noise.delayMs, 30);
+  assert.equal(restorePatchState({ noise: {} }).noise.delayMs, 0);
+  assert.equal(restorePatchState({ noise: { delayMs: 2000 } }).noise.delayMs, 1000);
+
+  Object.assign(patch.noise, { delayMs: 700, trimStart: 0, trimEnd: 1 });
+  const delayed = await renderWaveformPreview(patch, {}, 4096);
+  assert.ok(delayed.durationSec >= 0.7 + noiseDuration);
+  const onsetBin = Math.floor(0.7 / delayed.durationSec * delayed.comparison.noise.max.length);
+  assert.ok(delayed.comparison.noise.max.slice(0, onsetBin - 1).every((value) => Math.abs(value) < 1e-8));
+  assert.ok(delayed.comparison.noise.max.slice(onsetBin + 2).some((value) => value > 0.001));
+  const wav = new DataView(await (await renderWavBlob(patch, {})).arrayBuffer());
+  assert.ok(wav.getUint32(40, true) / 6 > SAMPLE_RATE * 0.7);
+  for (let offset = 44; offset < 44 + Math.floor(SAMPLE_RATE * 0.69) * 6; offset += 1)
+    assert.equal(wav.getUint8(offset), 0);
+  assert.ok(new Uint8Array(wav.buffer, 44 + Math.ceil(SAMPLE_RATE * 0.705) * 6).some((value) => value !== 0));
+});
+
 test('stereo width preserves, collapses and widens channel signals and WAV output', async () => {
   const patch = createLoadedPatch();
   patch.noise.mute = true;
@@ -981,6 +1687,103 @@ test('glue compression is stereo-linked and saturation offers a clean mix', asyn
   assert.equal(migrated.master.saturationMix, 0.4);
 });
 
+test('saturation types produce distinct bounded curves with a dry bypass', async () => {
+  const sampleRate = 48000;
+  const renderer = new OfflineRenderer();
+  await renderer.initialize({ numInputChannels: 0, numOutputChannels: 4, sampleRate, blockSize: 128 });
+  const signal = el.mul(0.6, el.cycle(1000));
+  await renderer.render(
+    saturator('types:tape', signal, 12, 1, 'tape'),
+    saturator('types:tube', signal, 12, 1, 'tube'),
+    saturator('types:hard', signal, 12, 1, 'hard'),
+    saturator('types:dry', signal, 12, 0, 'tube')
+  );
+  const outputs = Array.from({ length: 4 }, () => new Float32Array(sampleRate));
+  renderer.process([], outputs);
+  const secondHarmonic = (channel) => {
+    let sine = 0, cosine = 0;
+    for (let i = sampleRate / 2; i < sampleRate; i += 1) {
+      const phase = 2 * Math.PI * 2000 * i / sampleRate;
+      sine += channel[i] * Math.sin(phase);
+      cosine += channel[i] * Math.cos(phase);
+    }
+    return Math.hypot(sine, cosine) / (sampleRate / 2);
+  };
+  assert.ok(secondHarmonic(outputs[1]) > secondHarmonic(outputs[0]) + 0.02);
+  assert.ok(secondHarmonic(outputs[1]) > secondHarmonic(outputs[2]) + 0.02);
+  assert.ok(outputs[2].some((value) => value === 1));
+  assert.ok(outputs[2].some((value) => value === -1));
+  for (const channel of outputs) {
+    assert.ok(channel.every(Number.isFinite));
+    assert.ok(Math.max(...channel.subarray(sampleRate / 2)) <= 1.02);
+    assert.ok(Math.min(...channel.subarray(sampleRate / 2)) >= -1.02);
+  }
+  assert.ok(Math.abs(Math.max(...outputs[3].subarray(sampleRate / 2)) - 0.6) < 0.001);
+});
+
+test('noise colors have distinct spectra and patch choices survive state restoration', async () => {
+  for (const sampleRate of [44100, 48000]) {
+    const renderer = new OfflineRenderer();
+    await renderer.initialize({ numInputChannels: 0, numOutputChannels: 3, sampleRate, blockSize: 128 });
+    const raw = el.noise({ key: `test:colored:${sampleRate}`, seed: 145 });
+    await renderer.render(colorNoise(raw, 'white'), colorNoise(raw, 'pink'), colorNoise(raw, 'brown'));
+    const outputs = Array.from({ length: 3 }, () => new Float32Array(sampleRate * 2));
+    renderer.process([], outputs);
+    const lowHighRatio = (channel) => {
+      const pole = Math.exp(-2 * Math.PI * 250 / sampleRate);
+      let low = 0, lowEnergy = 0, highEnergy = 0;
+      for (let i = sampleRate / 2; i < channel.length; i += 1) {
+        low = pole * low + (1 - pole) * channel[i];
+        lowEnergy += low * low;
+        highEnergy += (channel[i] - low) ** 2;
+      }
+      assert.ok(channel.every(Number.isFinite));
+      return lowEnergy / highEnergy;
+    };
+    const ratios = outputs.map(lowHighRatio);
+    assert.ok(ratios[1] > ratios[0] * 2, `pink versus white: ${ratios}`);
+    assert.ok(ratios[2] > ratios[1] * 2, `brown versus pink: ${ratios}`);
+  }
+  const state = createDefaultState();
+  state.noise.type = 'brown';
+  state.master.saturationType = 'tube';
+  const restored = restorePatchState(serializePatchState(state));
+  assert.equal(restored.noise.type, 'brown');
+  assert.equal(restored.master.saturationType, 'tube');
+  const legacy = restorePatchState({ noise: {}, master: {} });
+  assert.equal(legacy.noise.type, 'white');
+  assert.equal(legacy.master.saturationType, 'tape');
+  const invalid = restorePatchState({ noise: { type: 'invalid' }, master: { saturationType: 'invalid' } });
+  assert.equal(invalid.noise.type, 'white');
+  assert.equal(invalid.master.saturationType, 'tape');
+  assert.equal(resetBusModuleKnobs(state, 'noise').noise.type, 'white');
+  assert.equal(resetBusModuleKnobs(state, 'saturation').master.saturationType, 'tape');
+});
+
+test('selected noise and saturation types reach the processed preview graph', async () => {
+  const patch = createLoadedPatch();
+  patch.noise.enabled = true;
+  patch.noise.mute = false;
+  patch.noise.gain = 0.22;
+  patch.master.saturationEnabled = true;
+  patch.master.saturationDrive = 18;
+  const finalWaveforms = [];
+  for (const type of ['tape', 'tube', 'hard']) {
+    patch.master.saturationType = type;
+    patch.noise.type = 'white';
+    const preview = await renderWaveformPreview(patch, { kick: sample });
+    finalWaveforms.push(preview.comparison.final.transient);
+    assert.ok(preview.comparison.noise.transient.some((value) => Math.abs(value) > 0));
+  }
+  assert.notDeepEqual(finalWaveforms[0], finalWaveforms[1]);
+  assert.notDeepEqual(finalWaveforms[1], finalWaveforms[2]);
+  for (const type of ['pink', 'brown']) {
+    patch.noise.type = type;
+    const preview = await renderWaveformPreview(patch, { kick: sample });
+    assert.ok(preview.comparison.noise.transient.some((value) => Math.abs(value) > 0), type);
+  }
+});
+
 test('master saturation processes the stereo sum before the glue compressor', async () => {
   const patch = createLoadedPatch();
   patch.noise.mute = true;
@@ -1003,9 +1806,9 @@ test('master saturation processes the stereo sum before the glue compressor', as
   assert.notDeepEqual(reordered.comparison.final.transient, compressed.comparison.final.transient);
   assert.deepEqual(reordered.comparison.preMaster.transient, compressed.comparison.preMaster.transient);
   assert.deepEqual(restorePatchState(serializePatchState(patch), buffers).master.busOrder,
-    ['glue', 'saturation', 'noise']);
+    ['glue', 'saturation', 'noise', 'ringMod', 'convolve']);
   assert.deepEqual(restorePatchState({ master: { busOrder: ['noise', 'noise', 'glue'] } }).master.busOrder,
-    ['noise', 'saturation', 'glue']);
+    ['noise', 'ringMod', 'convolve', 'saturation', 'glue']);
 });
 
 test('noise joins the bus at its selected position', async () => {
@@ -1268,7 +2071,7 @@ test('browser output monitor passes stereo through and reports aligned trace and
     const lanes = Array.from({ length: 10 }, (_, lane) =>
       Float32Array.from(left, (value) => value * (lane + 1))
     );
-    const effectMeters = Array.from({ length: 5 }, (_, lane) =>
+    const effectMeters = Array.from({ length: 9 }, (_, lane) =>
       Float32Array.from(left, (value) => value * (lane + 1))
     );
     const output = [new Float32Array(128), new Float32Array(128)];
@@ -1289,7 +2092,7 @@ test('browser output monitor passes stereo through and reports aligned trace and
   }
   assert.ok(messages.some((message) => message.type === 'meter' && message.peak === 1791 / 2048));
   const meter = messages.find((message) => message.type === 'meter');
-  for (let lane = 0; lane < 5; lane += 1) {
+  for (let lane = 0; lane < 9; lane += 1) {
     assert.ok(Math.abs(meter.effects[lane] - (895 / 2048) * (lane + 1)) < 1e-6);
   }
 });
@@ -1410,11 +2213,11 @@ test('monitor outputs preserve stereo audio and expose the processed mix', async
   const render = async (monitor) => {
     const renderer = new OfflineRenderer();
     await renderer.initialize({
-      numInputChannels: 0, numOutputChannels: monitor ? 18 : 2, sampleRate: SAMPLE_RATE,
+      numInputChannels: 0, numOutputChannels: monitor ? 22 : 2, sampleRate: SAMPLE_RATE,
       blockSize: 128, virtualFileSystem: { kick: sample }
     });
     await renderer.render(...buildDrumGraph({ ...patch, gate: 1, velocity: 1 }, monitor));
-    const outputs = Array.from({ length: monitor ? 18 : 2 }, () => new Float32Array(4096));
+    const outputs = Array.from({ length: monitor ? 22 : 2 }, () => new Float32Array(4096));
     renderer.process([], outputs);
     return outputs;
   };
@@ -1447,15 +2250,17 @@ test('effect meter taps follow bus order, gain and bypass and survive patch roun
   const old = restorePatchState({ master: {} });
   assert.equal(old.master.saturationGainDb, 0);
   assert.equal(old.master.glueGainDb, 0);
+  assert.equal(old.master.saturationMute, false);
+  assert.equal(old.master.glueMute, false);
 
   const render = async () => {
     const renderer = new OfflineRenderer();
     await renderer.initialize({
-      numInputChannels: 0, numOutputChannels: 18, sampleRate: SAMPLE_RATE,
+      numInputChannels: 0, numOutputChannels: 22, sampleRate: SAMPLE_RATE,
       blockSize: 128, virtualFileSystem: { kick: sample }
     });
     await renderer.render(...buildDrumGraph({ ...patch, gate: 1 }, true));
-    const outputs = Array.from({ length: 18 }, () => new Float32Array(8192));
+    const outputs = Array.from({ length: 22 }, () => new Float32Array(8192));
     renderer.process([], outputs);
     return outputs;
   };
@@ -1479,6 +2284,23 @@ test('effect meter taps follow bus order, gain and bypass and survive patch roun
     assert.ok(Math.abs(reverse[16][index] - reverse[13][index]) < 1e-6);
   }
   assert.notDeepEqual(forward[0], reverse[0]);
+  for (const [muteKey, enabledKey, input, output] of [
+    ['saturationMute', 'saturationEnabled', 13, 14],
+    ['glueMute', 'glueEnabled', 15, 16]
+  ]) {
+    patch.master[muteKey] = true;
+    const restoredMute = restorePatchState(serializePatchState(patch), { kick: sample });
+    assert.equal(restoredMute.master[muteKey], true);
+    const muted = await render();
+    assert.deepEqual(muted[input], muted[output]);
+    if (muteKey === 'glueMute') assert.ok(muted[17].every((value) => value === 0));
+    patch.master[muteKey] = false;
+    patch.master[enabledKey] = false;
+    const disabled = await render();
+    assert.deepEqual(muted[0], disabled[0]);
+    assert.deepEqual(muted[1], disabled[1]);
+    patch.master[enabledKey] = true;
+  }
   patch.master.saturationEnabled = false;
   patch.master.glueEnabled = false;
   const bypass = await render();
@@ -1624,6 +2446,10 @@ test('preview and WAV match a settled live-like renderer', async () => {
   patch.layers[0].hp = 500;
   patch.layers[0].clipDrive = 8;
   patch.master.drive = 6;
+  Object.assign(patch.master, {
+    ringModEnabled: true, ringModFrequency: 350, ringModMix: 0.7,
+    ringModPhase: 90, ringModBias: 0.2, ringModRectify: 0.5
+  });
   const buffers = { kick: sample };
   const preview = await renderWaveformPreview(patch, buffers);
   const renderer = new OfflineRenderer();
@@ -1722,6 +2548,7 @@ test('module knob reset restores defaults but keeps enable state and order', () 
   const state = createDefaultState();
   state.master.busOrder = ['glue', 'noise', 'saturation'];
   state.master.saturationEnabled = true;
+  state.master.saturationMute = true;
   state.master.saturationDrive = 0.9;
   state.noise.enabled = true;
   state.noise.cutoff = 123;
@@ -1730,6 +2557,7 @@ test('module knob reset restores defaults but keeps enable state and order', () 
   const saturation = resetBusModuleKnobs(state, 'saturation');
   assert.equal(saturation.master.saturationDrive, defaults.master.saturationDrive);
   assert.equal(saturation.master.saturationEnabled, true);
+  assert.equal(saturation.master.saturationMute, true);
   assert.deepEqual(saturation.master.busOrder, ['glue', 'noise', 'saturation']);
 
   const noise = resetBusModuleKnobs(state, 'noise');

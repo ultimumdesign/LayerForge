@@ -1,7 +1,7 @@
 /* global AudioWorkletProcessor, registerProcessor, sampleRate, currentFrame */
 const TRACE_CHUNK_SIZE = 2048;
 const TRACE_CHANNEL_COUNT = 13;
-const EFFECT_METER_COUNT = 5;
+const EFFECT_METER_COUNT = 9;
 
 class LayerForgeOutputMonitor extends AudioWorkletProcessor {
   constructor() {

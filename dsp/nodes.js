@@ -47,11 +47,33 @@ export function channelFilter(key, sig, hpFreq, lpFreq) {
   return lpFreq >= 20000 ? highPassed : el.svf({ mode: 'lowpass' }, lp, 0.707, highPassed);
 }
 
-export function saturator(key, sig, driveDb, mixAmount) {
+export function saturator(key, sig, driveDb, mixAmount, type = 'tape') {
   const drive = Math.pow(10, driveDb / 20);
-  const wet = el.div(el.tanh(el.mul(el.sm(el.const({ key: `${key}:drive`, value: drive })), sig)), Math.tanh(drive));
+  const driven = el.mul(el.sm(el.const({ key: `${key}:drive`, value: drive })), sig);
+  let wet;
+  if (type === 'tube') {
+    const bias = 0.3;
+    wet = el.dcblock(el.div(
+      el.sub(el.tanh(el.add(driven, bias)), Math.tanh(bias)),
+      Math.tanh(drive - bias) + Math.tanh(bias)
+    ));
+  } else if (type === 'hard') {
+    wet = el.max(-1, el.min(1, driven));
+  } else {
+    wet = el.div(el.tanh(driven), Math.tanh(drive));
+  }
   const mix = el.sm(el.const({ key: `${key}:mix`, value: mixAmount }));
   return el.add(el.mul(el.sub(1, mix), sig), el.mul(mix, wet));
+}
+
+export function colorNoise(raw, type) {
+  if (type === 'pink') return el.mul(10, el.pink(raw));
+  if (type === 'brown') {
+    const pole = el.tau2pole(1 / (2 * Math.PI * 40));
+    const normalization = el.sqrt(el.div(el.add(1, pole), el.sub(1, pole)));
+    return el.mul(normalization, el.smooth(pole, raw));
+  }
+  return raw;
 }
 
 export function glueCompressor(left, right, { glueThreshold, glueRatio, glueAttack, glueRelease, glueKnee = 6, glueMix = 1 }, includeMeter = false) {

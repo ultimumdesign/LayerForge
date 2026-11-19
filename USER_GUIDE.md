@@ -45,18 +45,22 @@ builds.
    channel, with up to 5 ms before and 20 ms after. Quieter beginnings or tails
    may be outside the initial selection; listen and extend the handles if
    needed. Entirely silent files stay untrimmed. The source file is unchanged.
-3. **Audition:** play any MIDI note, or press **Space** when no text field or
-   button has focus. Every note triggers the same sound; note pitch is ignored
-   and velocity scales the level.
+3. **Audition:** click **HIT**, play any MIDI note, or press **Space** when no
+   text field or other button has focus. Every note triggers the same sound;
+   note pitch is ignored and velocity scales the level.
 4. **Shape:** trim the sample, draw the gain envelope, set MIX, then add other
    layers. The noise synth is off by default; select **OFF · ENABLE** to use it.
 5. **Export (optional):** **PREPARE WAV**, then **COPY WAV** and paste into
    an audio track, or choose **SAVE WAV**.
 
 The rack follows the signal path: three sample channels → **SIGNAL CHAIN**
-(noise, saturation, glue) → **OUTPUT STAGE** → **OUTPUT SCOPE** display. Expand the
+(noise, ring modulation, convolution, saturation, glue) → **OUTPUT STAGE** → **OUTPUT SCOPE** display. Expand the
 waveform editors for more room; scroll vertically if the editor is shorter than
-its contents.
+its contents. In the native plug-in, drag the editor's resize handle to change
+its width and height. Narrowing the window scales the interface down; widening
+it restores the full-size controls. After a manual resize, the chosen height
+is respected and extra controls remain accessible by scrolling. Window resizing
+depends on the host.
 
 The channel filename display shows the loaded file. Click it to load a
 replacement or reveal the original in Finder / the file manager when the
@@ -64,6 +68,21 @@ location is known. If a dropped or restored sample has no known location you
 are asked to pick the original file; this records its location without
 changing the audio. Browser previews cannot reveal files. Long names scroll
 unless reduced-motion is enabled.
+
+### Undo and redo
+
+With the editor focused, press **Cmd+Z** (macOS) or **Ctrl+Z** (Windows) to
+undo a patch edit. Use **Cmd+Shift+Z**, **Ctrl+Shift+Z**, or **Ctrl+Y** to
+redo. Knob and waveform drags each count as one edit. Controls, envelopes,
+trims, mute/solo, effect switches, sample swaps, and signal-chain order can be
+undone; auditioning and view settings are not included. Text fields keep their
+own editing shortcuts.
+
+History is limited to 100 edits in the current editor session. Loading or
+replacing a sample, loading a preset, initializing a patch, or restoring a
+host project clears it; these operations cannot be undone. Host automation
+invalidates history for the affected control without undoing other controls.
+Shortcuts depend on the host passing keyboard input to the plug-in.
 
 ## DAW macros and automation
 
@@ -86,7 +105,7 @@ Channel 2 ─┼─► → transient shaper → clipper → width → MIX
 Channel 3 ─┘
               │ sum × velocity
               ▼
-   noise ▸ saturation ▸ glue   (order adjustable; default shown)
+   noise ▸ ring modulation ▸ convolution ▸ saturation ▸ glue   (order adjustable; default shown)
               ▼
    master clipper → CEILING → OUTPUT → host
 ```
@@ -113,15 +132,20 @@ changing the sound. A hollow status light and subdued border mark an empty
 channel; loaded channels have a filled light, and muted channels are dimmed.
 
 **Knobs:** drag vertically, Shift-drag for fine control, click the value to
-type one, double-click to reset. The gear icon shows or hides extra controls
-(modified controls stay visible). The circular-arrow icon resets the channel's
-knobs after confirmation, keeping the sample, trim, envelope, mute and solo.
-These display preferences last for the editor session.
+type one, double-click to reset. The chevron shows or hides extra controls
+inline: unchanged extras are grouped under **ADDITIONAL CONTROLS**, while
+modified extras stay with the channel's main knobs. The circular-arrow icon
+resets the channel's knobs after confirmation, keeping the sample, trim,
+envelope, mute and solo. These display preferences last for the editor session.
+
+Adjust **CLIP GAIN** in the waveform header with its slider or exact-value
+field (−60 to +12 dB). In the action row, drag the **PLAY DLY** arrows up or
+down to adjust playback delay from 0 to 1000 ms; Shift-drag for finer control,
+use the arrow keys, or type an exact value. Double-click the arrows to reset.
 
 | Control | Function | Range (default) |
 |---|---|---|
 | PITCH | Varispeed playback pitch; changes length | −24 to +24 st (0) |
-| PLAY DLY | Start delay (not an echo) | 0–1000 ms (0) |
 | ATTACK / SUSTAIN | Transient and body level | −1 to +1 (0) |
 | HPF | 12 dB/oct high-pass; bypassed at 20 Hz | 20–2000 Hz (20) |
 | LPF | 12 dB/oct low-pass; bypassed at 20 kHz | 800–20000 Hz (20000) |
@@ -145,8 +169,9 @@ the channel.
 ## Waveform editing
 
 The channel waveform shows an offline *processed* preview with trim handles and
-the gain envelope. Dimmed audio outside the trim gives context; processing tails
-past the playable sample appear in the sum. Stereo files are drawn as one
+the gain envelope. It shows channel processing only; master bus effects and
+other channels cannot change its shape or time scale. Dimmed audio outside the
+trim gives context; processing tails past the playable sample appear in the sum. Stereo files are drawn as one
 combined range but are not downmixed in the audio path. The preview updates when
 settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
 
@@ -176,14 +201,19 @@ settings change, not on each hit. **EDIT WAVE** opens a larger source-time view.
 
 ## Noise synth
 
-White noise through a band-pass filter, shaped by a decay envelope, clipped and
-mixed.
+White, pink or brown noise through a band-pass filter, shaped by a decay
+envelope, clipped and mixed. **NOISE TYPE** selects the source color: white is
+bright, pink is softer, and brown emphasizes the low end. Their levels change
+with FREQ and RESO; adjust MIX to taste. White is the default.
+Drag the type knob, use its arrow keys, or click its value to cycle the colors.
+Double-click the knob to return to white.
 
 | Control | Function | Range (default) |
 |---|---|---|
 | FREQ | Band-pass centre | 20–20000 Hz (4800) |
 | RESO | Band-pass Q | 0.1–30 (1.4) |
 | DECAY | Envelope time (≈ −60 dB) | 2 ms–3 s (75 ms) |
+| PLAY DLY | Delay before the noise hit starts | 0–1000 ms (0) |
 | CLIP DRV | Clipper drive | 0–36 dB (3) |
 | MIX | Level | 0–2 (0.22) |
 
@@ -191,10 +221,14 @@ The settings popup shows the processed noise waveform, which can be edited like
 a sample: gain-envelope points, curve handles, reset, and IN/OUT to gate a
 window within the hit (without shifting it earlier). Changing DECAY rescales
 that window. There is no silence snapping. Noise differs on each trigger, and
-the waveform is an offline preview.
+the waveform is an offline preview. PLAY DLY shifts the whole noise hit later
+without changing its trim or envelope; the editor remains on the noise's own
+timeline, and the sum view uses output time. Adjust PLAY DLY in the action row
+using the same drag, keyboard and exact-value controls as the channel delay.
 
-Noise length follows DECAY (plus a 15 ms tail). The 28 ms trigger gate only
-restarts the envelope, so long decays ring out in full.
+Noise length follows DECAY (plus a 15 ms tail), after any PLAY DLY. The 28 ms
+trigger gate only restarts the envelope, so long decays ring out in full. A new
+hit restarts the noise voice, including any pending delay.
 
 The enable switch is separate from **M**: enabling a muted synth leaves it
 muted, and disabling it keeps its mute and solo. The settings button is
@@ -203,16 +237,34 @@ available only while the synth is on.
 ## Master bus
 
 **Order.** Drag a module's dotted grip onto another module to reorder noise,
-saturation and glue. You can also focus the grip and use the up/down arrow
-keys. The order is saved with the patch (default: noise, saturation, glue).
+convolution, saturation, glue and ring modulation. You can also focus the grip and use the up/down arrow
+keys. The order is saved with the patch (default: noise, ring modulation, convolution, saturation, glue).
 The line beside the modules shows the path from channels to output; the plus
-marks where noise joins, and filled markers show active modules. Open a
-module's settings with the gear beside its enable switch. Settings are
+marks where noise joins, and filled markers show active modules. Select a
+module's LCD-style title to open its settings; the inline gear marks it as
+interactive. Its enable switch shares the same compact row. Settings are
 available only while the corresponding module is enabled; bypassing keeps
 their values for the next time it is enabled.
+Each popup has an **M** button beside its reset controls. For convolution, saturation,
+glue and ring modulation, M bypasses the whole effect, including its OUTPUT gain, without silencing
+the signal or closing the popup. Muting noise silences only the noise source.
+Mute is saved independently of the enable switch, and a muted module is marked
+in the signal chain.
+Use **HIT** in a settings or channel waveform editor window to audition without
+closing it. Space also triggers a hit when HIT or CLOSE is focused; use Enter
+or Escape to close.
+The saturation type knob uses the same drag, arrow-key, click-to-cycle and
+double-click-to-reset controls as the noise type knob.
 
 | Module | Controls | Range (default) |
 |---|---|---|
+| CONVOLUTION | PROFILE | Room (default), Plate, Chamber |
+| | PREDELAY | 0–200 ms (0) |
+| | LOW CUT | 20–2000 Hz (20) |
+| | HIGH CUT | 800–20000 Hz (20000) |
+| | DRY/WET | 0–1 (0.5) |
+| | OUTPUT | −24 to +24 dB (0) |
+| SATURATION | TYPE | Tape · soft (default), Tube · asymmetric, Digital · hard |
 | SATURATION | SAT DRIVE | 0–24 dB (6) |
 | | SAT DRY/WET | 0–1 (1) |
 | | OUTPUT | −24 to +24 dB (0) |
@@ -223,10 +275,49 @@ their values for the next time it is enabled.
 | | KNEE | 0–24 dB (6) |
 | | DRY/WET | 0–1 (1); 0 is dry, 1 is fully compressed |
 | | OUTPUT | −24 to +24 dB (0) |
+| RING MODULATION | FREQUENCY | 0.1–5000 Hz (100) |
+| | PHASE | 0–360° (0) |
+| | BIAS | 0–1 (0) |
+| | RECTIFY | −1 to +1 (0) |
+| | SPREAD | 0–1 (0) |
+| | DRY/WET | 0–1 (1); 0 is dry, 1 is fully modulated |
+| | OUTPUT | −24 to +24 dB (0) |
 | OUTPUT STAGE | BUS DRIVE | 0–24 dB (2) |
 | | SOFT/HARD | 0–1 (0.45) |
 | | CEILING | 0.1–1.0 linear (0.95) |
 | | OUTPUT | −60 to +12 dB (0) |
+
+The tape-style option is the original symmetric tanh curve; tube-style adds
+asymmetry and DC blocking, while digital hard clipping gives a sharper edge.
+These are simplified waveshaping styles, not models of specific hardware.
+Their levels can differ, so use OUTPUT and the meters to compare them.
+
+Convolution is off by default. Its three built-in stereo responses are generated
+profiles, not recordings of real rooms or hardware. PROFILE uses the same
+stepped knob interaction as the noise and saturation types. PREDELAY and the
+filters affect the wet path; OUTPUT follows the blend. The processor includes
+the response and predelay in preview and export duration.
+
+Ring modulation is off by default. FREQUENCY uses a logarithmic drag response
+for easier adjustment at low rates. PHASE sets where the sine carrier starts on
+each hit: 0° starts at zero, while 90° starts at its positive peak and can
+preserve more of a drum's initial attack. Low frequencies produce bipolar
+amplitude modulation; audio-rate settings create metallic sum and difference
+frequencies. BIAS adds a positive offset to the carrier, bringing back some
+original signal and potentially increasing the wet peak by up to 6 dB.
+RECTIFY smoothly folds the carrier toward negative or positive full-wave
+rectification, adding harmonics. SPREAD detunes left and right carrier
+frequencies in opposite directions, up to 5% each way; check mono compatibility
+when using it. High frequencies and rectification can alias, especially at
+lower sample rates. DRY/WET blends the original and modulated signals; OUTPUT
+follows the blend. The four shaping controls default to zero, retaining the
+original ring-mod sound.
+
+For a starting point, try PHASE 90°, FREQUENCY 40 Hz and DRY/WET 0.3 on a kick
+to blend modulation with the original attack. For a metallic layer, try
+FREQUENCY 300 Hz, RECTIFY 0.5 and DRY/WET 0.5, then adjust OUTPUT while watching
+the meter. Add a little SPREAD for stereo motion, and audition in mono too.
+Results depend on the source and the other bus effects.
 
 The glue compressor is stereo-linked: the same gain reduction applies to both
 sides. Each effect's OUTPUT adjusts its mixed output when enabled and is
@@ -242,7 +333,7 @@ values beyond that range.
 **Meters.** **OUTPUT PEAK** (Output Scope) measures post-OUTPUT signal in
 dBFS, holds peaks briefly and flags values at or above 0 dBFS. **HIT PEAK**
 holds the highest peak of the latest audible burst (bursts are separated by
-300 ms below −80 dBFS). The saturation and compressor input/output meters have
+300 ms below −80 dBFS). The convolution, saturation, compressor and ring modulation input/output meters have
 their own HIT PEAK readouts, and the compressor shows MAX THIS HIT, the largest
 wet gain reduction of the latest hit (new bursts are separated by 300 ms of
 under 0.05 dB reduction). These are peak meters, not loudness meters. WAV export
@@ -262,14 +353,34 @@ for up to four seconds, clears when the patch changes and warns about missed
 data; play another hit after a gap warning. TRACE affects the sum and its
 expanded comparison, not the channel or noise previews.
 
-**EXPAND** compares final output, pre-master sum, each channel and noise on a
-shared time and amplitude scale. The pre-master lane is the sum of all sources
-before effects, even when noise is inserted later in the bus; final output is
-after all master processing. Because master processing is nonlinear, the final
-signal cannot be split into independent per-source contributions.
+**EXPAND** on the waveform or **MENU → EXPANDED OUTPUT SCOPE** shows
+oscilloscope-style panels for final output and the pre-master
+sum above the three channels and noise. All panels use the same output-time
+window and amplitude scale. Compare pre-master and final output to see the
+overall effect of bus processing and output gain; individual effects are not
+displayed as separate waveforms. The pre-master sum includes all sources before
+effects, even when noise is inserted later in the bus. Because master
+processing is nonlinear, the final signal cannot be split into independent
+per-source contributions.
 
-- **VIEW:** first 5, 20 or 100 ms of actual samples, or **FULL HIT** for peak
-  envelopes. **DETAIL** sets full-hit resolution (512, 2048, 4096 bins).
+- Switch to **SIGNAL FLOW** in the expanded scope to explore the current
+  routing. Select a stage for an explanation; the diagram follows module order,
+  noise insertion and mute/solo/bypass settings. It is not a live meter and
+  does not change the sound. Switch back to **WAVEFORM** for the comparison.
+- **VIEW:** **SOURCES** fits the longest audible playable source, including its
+  delay, pitch, trim and phase alignment. It is the default; with no audible
+  sources, it falls back to the full render or capture. **FULL RENDER** includes the
+  remaining output and effect tails; for live traces it is called **FULL
+  CAPTURE**. The first 5, 20 or 100 ms show actual samples. **DETAIL** sets
+  peak-envelope resolution (512, 2048, 4096 bins). A live trace still captures
+  at most four seconds, so longer source windows contain uncaptured space.
+- Move over or drag on any comparison waveform to place a shared crosshair.
+  The readout shows output time and a reference level; each lane shows its
+  stereo minimum and maximum at that time, or **NO DATA** beyond available
+  audio. Peak-envelope views report the selected bin's bounds, not an exact
+  sample. Focus a waveform and use left/right arrows to move by a sample or
+  peak bin and up/down to adjust the reference. Hold Shift for ten-step moves,
+  use Home/End for the time limits, and Escape or **CLEAR** to remove it.
 - **ZOOM** magnifies the start of the timeline; **FIT** raises display scale up
   to 20×; **ACTUAL 1:1** restores unscaled amplitude. These are display-only.
 - Channel **SRC** times are source positions before pitch and delay; sum **OUT**
@@ -331,7 +442,7 @@ signal cannot be split into independent per-source contributions.
 The top bar has two fixed rows (presets, then audio, THEME and MENU) with
 fixed-width controls and a reserved status slot, so nothing moves when a WAV
 is prepared or a preset loads. The THEME picker offers palettes with animated
-outlines around the chassis and panels, colored to match each theme. **GOLDEN
+outlines that cross-fade between colors around the chassis and panels. **GOLDEN
 NUGGET** is the default and uses RGB outlines. Your chosen theme is remembered
 in the browser and saved with the native host project. **HIGH CONTRAST** uses
 brighter text and controls, stronger keyboard focus outlines, and a static
@@ -342,13 +453,24 @@ and **TRACE SPEED** to cycle between NORMAL, FAST and SLOW. These affect only
 the decorative outlines, not the Output Scope's audio trace. The browser
 remembers these choices locally; the native plug-in saves them with the host
 project. HIGH CONTRAST and system reduced-motion settings remain static.
-The **MENU** also offers the usage guide (the published manual), hover help,
-initialize, diagnostics and about. The signature above **CLOSE** in the
+The **DSP INFO DISPLAY**, enabled by default, shows the processing purpose of
+the channel, effect, waveform or editing control under the pointer or keyboard
+focus in the LCD below the output-stage controls. Effect and expanded waveform
+dialogs repeat the display.
+The output-stage arrows show the clipper, ceiling and output order; BUS DRIVE
+and SOFT/HARD both control the clipper. In **MENU**, toggle **DSP INFO DISPLAY**
+and the separate **HOVER HELP** tooltips independently; hover help is off by
+default and shows control names and editing instructions. The browser remembers
+these choices locally and the native plug-in saves them with the host project.
+
+The **MENU** also offers the usage guide (the published manual), initialize,
+diagnostics and about. The signature above **CLOSE** in the
 **ABOUT** popup opens ayatko's Instagram in your browser.
 
 **Resetting module knobs.** Open a signal-chain module's gear dialog and press
-**RESET KNOBS** to restore its knobs to defaults after confirmation. On/off
-state, signal-chain position, noise trim/envelope, mute and solo are kept. Apart from those transfer files, LayerForge does not write export caches
+**RESET KNOBS** beside the popup's mute control to restore its knobs to defaults
+after confirmation. On/off state, signal-chain position, noise trim/envelope,
+mute and solo are kept. Apart from those transfer files, LayerForge does not write export caches
 or diagnostic log files itself; the DAW and OS webview may manage their own.
 
 ## Troubleshooting

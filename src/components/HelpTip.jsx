@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useId } from 'react';
 
 export const HelpEnabledContext = createContext(true);
+export const DspInfoContext = createContext({ enabled: false, info: null });
+
+export function DspInfoScreen() {
+  const { enabled, info } = useContext(DspInfoContext);
+  if (!enabled) return null;
+  return (
+    <div className="dsp-info-screen" role="status" aria-live="polite">
+      <strong>{info?.label || 'DSP INFO'}</strong>
+      <span>{info?.text || 'Hover or focus a knob or control for a description.'}</span>
+    </div>
+  );
+}
 
 export function HelpTip({ text, children }) {
   const enabled = useContext(HelpEnabledContext);

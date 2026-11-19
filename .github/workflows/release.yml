@@ -193,6 +193,7 @@ jobs:
           actual_version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$plugin/Contents/Info.plist")
           test "$actual_version" = "$expected_version"
           ditto -c -k --sequesterRsrc --keepParent "$plugin" "${{ matrix.asset }}"
+          zip -u "${{ matrix.asset }}" THIRD_PARTY_NOTICES.md
           unzip -t "${{ matrix.asset }}"
 
       - name: Package Windows VST3
@@ -213,7 +214,7 @@ jobs:
           if ($actualVersion -ne $expectedVersion) {
             throw "Windows VST3 version $actualVersion does not match package version $expectedVersion"
           }
-          Compress-Archive -Path $plugin -DestinationPath "${{ matrix.asset }}" -CompressionLevel Optimal -Force
+          Compress-Archive -Path $plugin, "THIRD_PARTY_NOTICES.md" -DestinationPath "${{ matrix.asset }}" -CompressionLevel Optimal -Force
           $archive = [System.IO.Compression.ZipFile]::OpenRead("${{ matrix.asset }}")
           try {
             $entry = $archive.GetEntry("LayerForge.vst3/Contents/x86_64-win/LayerForge.vst3")

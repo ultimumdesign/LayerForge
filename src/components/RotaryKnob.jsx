@@ -10,6 +10,8 @@ export function RotaryKnob({
   unit = '',
   accent = 'var(--theme-accent)',
   decimals = 2,
+  options = null,
+  logarithmic = false,
   description = 'Drag vertically to adjust; Shift+drag for fine control.',
   onChange
 }) {
@@ -19,7 +21,10 @@ export function RotaryKnob({
   const [draft, setDraft] = useState('');
   const [editError, setEditError] = useState(false);
 
-  const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const normalize = (number) => logarithmic
+    ? Math.log(number / min) / Math.log(max / min)
+    : (number - min) / (max - min);
+  const normalized = Math.max(0, Math.min(1, normalize(value)));
   const angle = -135 + normalized * 270;
 
   const beginValueEdit = (event) => {
@@ -55,7 +60,8 @@ export function RotaryKnob({
     e.currentTarget.setPointerCapture(e.pointerId);
     dragState.current = {
       startY: e.clientY,
-      startVal: value
+      startVal: value,
+      startPosition: normalized
     };
   };
 
@@ -63,8 +69,11 @@ export function RotaryKnob({
     if (!dragState.current) return;
     const sensitivity = e.shiftKey ? 450 : 140;
     const deltaY = dragState.current.startY - e.clientY;
-    const range = max - min;
-    const next = Math.max(min, Math.min(max, dragState.current.startVal + (deltaY / sensitivity) * range));
+    const position = Math.max(0, Math.min(1, dragState.current.startPosition + deltaY / sensitivity));
+    const raw = Math.max(min, Math.min(max,
+      logarithmic ? min * Math.pow(max / min, position)
+        : dragState.current.startVal + (deltaY / sensitivity) * (max - min)));
+    const next = options ? Math.round(raw) : raw;
     onChange(next);
   };
 
@@ -76,15 +85,22 @@ export function RotaryKnob({
   };
 
   const formatDisplay = () => {
+    if (options) return options[value];
     if (unit === 'Hz' && value >= 1000) {
       return `${(value / 1000).toFixed(1)}k`;
     }
     return `${Number(value).toFixed(decimals)}${unit}`;
   };
 
+  const help = options
+    ? `${label}: Drag vertically or use arrow keys to select; click the value to cycle; double-click the knob to reset.`
+    : `${label}: Drag vertically to adjust; Shift-drag for fine control. Click the value to type; double-click the knob to reset.`;
+
   return (
     <div
       className="knob-unit"
+      data-dsp-label={label}
+      data-dsp-help={description}
       onDoubleClick={() => onChange(defaultValue)}
     >
       <div
@@ -92,6 +108,24 @@ export function RotaryKnob({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={() => { dragState.current = null; }}
+        role={options ? 'slider' : undefined}
+        tabIndex={options ? 0 : undefined}
+        aria-label={options ? label : undefined}
+        aria-valuemin={options ? min : undefined}
+        aria-valuemax={options ? max : undefined}
+        aria-valuenow={options ? value : undefined}
+        aria-valuetext={options ? formatDisplay() : undefined}
+        onKeyDown={options ? (event) => {
+          let next;
+          if (event.key === 'ArrowUp' || event.key === 'ArrowRight') next = Math.min(max, value + 1);
+          else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') next = Math.max(min, value - 1);
+          else if (event.key === 'Home') next = min;
+          else if (event.key === 'End') next = max;
+          else return;
+          event.preventDefault();
+          onChange(next);
+        } : undefined}
         style={{ '--accent': accent }}
       >
         <svg viewBox="0 0 44 44" className="knob-svg">
@@ -126,7 +160,7 @@ export function RotaryKnob({
         </div>
       </div>
       <div className="knob-label-row">
-        <HelpTip text={`${description} Click the value to type an exact number; double-click the knob to reset.`}>
+        <HelpTip text={help}>
           <span className="knob-label">{label}</span>
         </HelpTip>
       </div>
@@ -166,9 +200,11 @@ export function RotaryKnob({
         <button
           type="button"
           className="knob-val"
-          onClick={beginValueEdit}
+          onClick={options ? () => onChange(value === max ? min : value + 1) : beginValueEdit}
           onDoubleClick={(event) => event.stopPropagation()}
-          aria-label={`${label}: ${formatDisplay()}. Click to edit the exact value.`}
+          aria-label={options
+            ? `${label}: ${formatDisplay()}. Click to select the next type.`
+            : `${label}: ${formatDisplay()}. Click to edit the exact value.`}
         >
           {formatDisplay()}
         </button>

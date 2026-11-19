@@ -1,6 +1,7 @@
 #include "../PluginProcessor.h"
 #include "../SampleHash.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -43,8 +44,167 @@ struct CountingInputStream : juce::MemoryInputStream
     int reads = 0;
 };
 
+bool testConvolution(double sampleRate, const char* profile)
+{
+    constexpr int blockSize = 128;
+    LayerForgeAudioProcessor processor;
+    std::vector<float> sample(4410, 0.5f);
+    processor.storeSampleResource("kick", sample, 44100.0);
+    const auto patch = juce::String(R"({"layers":[{"loaded":true,"sampleKey":"kick","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"master":{"convolveEnabled":true,"convolveMix":1,"convolveProfile":")")
+        + profile + R"("}})";
+    if (!expect(processor.setPatchStateJson(patch), "Convolution patch was rejected"))
+        return false;
+    processor.setRateAndBufferSizeDetails(sampleRate, blockSize);
+    processor.prepareToPlay(sampleRate, blockSize);
+    if (!expect(!processor.getStoredSamples().empty(), "Convolution test sample was not stored"))
+        return false;
+    juce::AudioBuffer<float> audio(2, blockSize);
+    juce::MidiBuffer midi;
+    float input = 0.0f, output = 0.0f;
+    float finalPeak = 0.0f;
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        input = 0.0f;
+        output = 0.0f;
+        finalPeak = 0.0f;
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+        for (int block = 0; block < 40; ++block) {
+            processor.processBlock(audio, midi);
+            midi.clear();
+            finalPeak = std::max(finalPeak, audio.getMagnitude(0, 0, blockSize));
+            input = std::max(input, processor.takeEffectPeak(5));
+            output = std::max(output, processor.takeEffectPeak(6));
+        }
+        if (input > 0.0f && output > 0.0f && std::abs(input - output) > 1e-4f && finalPeak > 0.0f)
+            break;
+        juce::Thread::sleep(10);
+    }
+    if (input == 0.0f || output == 0.0f || std::abs(input - output) <= 1e-4f)
+        std::cerr << "Convolution profile " << profile << " at " << sampleRate
+                  << " Hz: input=" << input << ", output=" << output << ", final=" << finalPeak << '\n';
+    if (!expect(input > 0.0f && output > 0.0f && finalPeak > 0.0f && std::abs(input - output) > 1e-4f,
+                "Convolution or its meters did not process audio with the editor closed"))
+        return false;
+    const auto mutedPatch = patch.replace("\"convolveEnabled\":true", "\"convolveEnabled\":true,\"convolveMute\":true");
+    if (!expect(processor.setPatchStateJson(mutedPatch), "Convolution mute patch was rejected"))
+        return false;
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        input = 0.0f;
+        output = 0.0f;
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+        for (int block = 0; block < 40; ++block) {
+            processor.processBlock(audio, midi);
+            midi.clear();
+            input = std::max(input, processor.takeEffectPeak(5));
+            output = std::max(output, processor.takeEffectPeak(6));
+        }
+        if (input > 0.0f && std::abs(input - output) < 1e-6f)
+            return true;
+        juce::Thread::sleep(10);
+    }
+    return expect(false, "Convolution mute did not bypass the effect and match its meter taps");
+}
+
+bool testRingModulation()
+{
+    constexpr int blockSize = 128;
+    constexpr double sampleRate = 44100.0;
+    LayerForgeAudioProcessor processor;
+    processor.storeSampleResource("ring-left", std::vector<float>(4410, 0.5f), sampleRate);
+    processor.storeSampleResource("ring-right", std::vector<float>(4410, 0.25f), sampleRate);
+    const juce::String patch = R"({"layers":[{"loaded":true,"sampleKey":"ring-left","sampleRightKey":"ring-right","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"master":{"drive":0,"hardness":1,"ceiling":1,"ringModEnabled":true,"ringModFrequency":10,"ringModMix":1}})";
+    if (!expect(processor.setPatchStateJson(patch), "Ring modulation patch was rejected"))
+        return false;
+    juce::MemoryBlock state;
+    processor.getStateInformation(state);
+    LayerForgeAudioProcessor restored;
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    auto* frequency = findParameter(restored, "master_ringModFrequency");
+    const auto master = juce::JSON::parse(restored.getPatchStateJson()).getProperty("master", {});
+    if (!expect(frequency != nullptr && std::abs(frequency->convertFrom0to1(frequency->getValue()) - 10.0f) < 0.01f
+                    && static_cast<bool>(master.getProperty("ringModEnabled", false)),
+                "Ring modulation host state was not restored"))
+        return false;
+    restored.setParameterFromEditor("master_ringModSpread", 0.4f);
+    juce::MemoryBlock editedState;
+    restored.getStateInformation(editedState);
+    LayerForgeAudioProcessor reopened;
+    reopened.setStateInformation(editedState.getData(), static_cast<int>(editedState.getSize()));
+    auto* spread = findParameter(reopened, "master_ringModSpread");
+    if (!expect(spread != nullptr && std::abs(spread->convertFrom0to1(spread->getValue()) - 0.4f) < 1e-4f,
+                "Ring modulation spread automation was not preserved in host state"))
+        return false;
+    processor.setRateAndBufferSizeDetails(sampleRate, blockSize);
+    processor.prepareToPlay(sampleRate, blockSize);
+    juce::AudioBuffer<float> audio(2, blockSize);
+    juce::MidiBuffer midi;
+    bool processed = false;
+    for (int attempt = 0; attempt < 300 && !processed; ++attempt) {
+        midi.clear();
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+        for (int block = 0; block < 40; ++block) {
+            processor.processBlock(audio, midi);
+            midi.clear();
+            const auto input = processor.takeEffectPeak(7);
+            const auto output = processor.takeEffectPeak(8);
+            if (input > 0.1f && output > 0.001f && output < input * 0.8f) {
+                for (int index = 0; index < blockSize; ++index)
+                    if (std::abs(audio.getSample(0, index)) > 0.01f
+                        && std::abs(audio.getSample(1, index) - audio.getSample(0, index) * 0.5f) < 1e-4f)
+                        processed = true;
+            }
+        }
+        if (!processed)
+            juce::Thread::sleep(10);
+    }
+    if (!expect(processed, "Ring modulation audio, stereo or meter taps failed without an editor"))
+        return false;
+    const auto shapedPatch = patch.replace("\"ringModEnabled\":true",
+        "\"ringModEnabled\":true,\"ringModPhase\":90,\"ringModBias\":0.2,\"ringModRectify\":0.5,\"ringModSpread\":1");
+    if (!expect(processor.setPatchStateJson(shapedPatch), "Shaped ring modulation patch was rejected"))
+        return false;
+    bool spreadAudible = false;
+    for (int attempt = 0; attempt < 300 && !spreadAudible; ++attempt) {
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+        for (int block = 0; block < 40; ++block) {
+            processor.processBlock(audio, midi);
+            midi.clear();
+            for (int index = 0; index < blockSize; ++index)
+                if (std::abs(audio.getSample(0, index)) > 0.01f
+                    && std::abs(audio.getSample(1, index) - audio.getSample(0, index) * 0.5f) > 0.001f)
+                    spreadAudible = true;
+        }
+        if (!spreadAudible)
+            juce::Thread::sleep(10);
+    }
+    if (!expect(spreadAudible, "Ring modulation spread did not affect native stereo audio"))
+        return false;
+    if (!expect(processor.setPatchStateJson(patch.replace("\"ringModEnabled\":true",
+                                                        "\"ringModEnabled\":true,\"ringModMute\":true")),
+                "Ring modulation mute patch was rejected"))
+        return false;
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+        for (int block = 0; block < 40; ++block) {
+            processor.processBlock(audio, midi);
+            midi.clear();
+            const auto input = processor.takeEffectPeak(7);
+            const auto output = processor.takeEffectPeak(8);
+            if (input > 0.1f && std::abs(input - output) < 1e-6f)
+                return true;
+        }
+        juce::Thread::sleep(10);
+    }
+    return expect(false, "Ring modulation mute did not bypass the effect and match its meter taps");
+}
+
 bool run()
 {
+    if (!testRingModulation())
+        return false;
+    for (const auto* profile : { "room", "plate", "chamber" })
+        if (!testConvolution(44100.0, profile) || !testConvolution(48000.0, profile))
+            return false;
     juce::MemoryBlock hashData(1024 * 1024);
     auto* bytes = static_cast<std::uint8_t*>(hashData.getData());
     for (size_t i = 0; i < hashData.getSize(); ++i)
@@ -64,7 +224,7 @@ bool run()
     std::vector<float> rightSample(4410, 0.25f);
     source.storeSampleResource("kick-right", rightSample, sampleRate);
     if (!source.setPatchStateJson(
-            R"({"loadedPreset":"kick.lfpreset","uiTheme":"cyan-volt","uiBorderTrace":{"level":"subtle","speed":"fast"},"layers":[{"loaded":true,"sampleKey":"kick","sampleRightKey":"kick-right","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true},"master":{"glueEnabled":true,"glueThreshold":-30,"glueRatio":8,"glueAttack":0.001}})"))
+            R"({"loadedPreset":"kick.lfpreset","uiTheme":"cyan-volt","uiBorderTrace":{"level":"subtle","speed":"fast"},"uiHelpSettings":{"hover":true,"dspInfo":false},"layers":[{"loaded":true,"sampleKey":"kick","sampleRightKey":"kick-right","sampleRate":44100,"sampleCount":4410,"envelopePoints":[{"time":0,"value":1},{"time":1,"value":1}]}],"noise":{"mute":true,"type":"brown","delayMs":150},"master":{"saturationType":"tube","saturationMute":true,"glueEnabled":true,"glueThreshold":-30,"glueRatio":8,"glueAttack":0.001}})"))
         return false;
     juce::MemoryBlock saved;
     source.getStateInformation(saved);
@@ -75,8 +235,13 @@ bool run()
     restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
     auto* output = findParameter(restored, "master_outputDb");
     auto* pitch = findParameter(restored, "l0_pitch");
-    if (!expect(restored.getParameters().size() == 55 && output != nullptr && pitch != nullptr,
+    auto* noiseDelay = findParameter(restored, "noise_delayMs");
+    if (!expect(restored.getParameters().size() == 68 && output != nullptr && pitch != nullptr
+                    && noiseDelay != nullptr,
                 "Host parameter set is incomplete"))
+        return false;
+    if (!expect(std::abs(noiseDelay->convertFrom0to1(noiseDelay->getValue()) - 150.0f) < 1e-3f,
+                "Noise start delay was not restored as a host parameter"))
         return false;
     if (!expect(std::abs(output->convertFrom0to1(output->getValue())) < 1e-4f,
                 "Legacy patch did not use parameter defaults"))
@@ -105,6 +270,24 @@ bool run()
                 "Legacy parameter migration or clamping failed"))
         return false;
     const auto restoredState = juce::JSON::parse(restored.getPatchStateJson());
+    if (!expect(restoredState.getProperty("noise", {}).getProperty("type", {}).toString() == "brown"
+                    && restoredState.getProperty("master", {}).getProperty("saturationType", {}).toString() == "tube",
+                "Noise and saturation types were not preserved in host state"))
+        return false;
+    if (!expect(static_cast<bool>(restoredState.getProperty("master", {}).getProperty("saturationMute", false)),
+                "Effect mute states were not preserved in host state"))
+        return false;
+    LayerForgeAudioProcessor mutedGlue;
+    if (!mutedGlue.setPatchStateJson(R"({"master":{"glueEnabled":true,"glueMute":true}})"))
+        return false;
+    juce::MemoryBlock mutedState;
+    mutedGlue.getStateInformation(mutedState);
+    LayerForgeAudioProcessor reopenedMutedGlue;
+    reopenedMutedGlue.setStateInformation(mutedState.getData(), static_cast<int>(mutedState.getSize()));
+    if (!expect(static_cast<bool>(juce::JSON::parse(reopenedMutedGlue.getPatchStateJson())
+                    .getProperty("master", {}).getProperty("glueMute", false)),
+                "Compressor mute was not preserved in host state"))
+        return false;
     if (!expect(restoredState.getProperty("loadedPreset", {}).toString() == "kick.lfpreset",
                 "Loaded preset selection was not preserved in host state"))
         return false;
@@ -115,6 +298,11 @@ bool run()
     if (!expect(borderTrace.getProperty("level", {}).toString() == "subtle"
                     && borderTrace.getProperty("speed", {}).toString() == "fast",
                 "Border tracing settings were not preserved in host state"))
+        return false;
+    const auto helpSettings = restoredState.getProperty("uiHelpSettings", {});
+    if (!expect(static_cast<bool>(helpSettings.getProperty("hover", false))
+                    && !static_cast<bool>(helpSettings.getProperty("dspInfo", true)),
+                "Help settings were not preserved in host state"))
         return false;
     const auto restoredSamples = restored.getStoredSamples();
     bool foundRightSample = false;
@@ -256,7 +444,43 @@ bool run()
     }
     restored.audition(1.0f);
     restored.processBlock(audio, midi);
-    return expect(std::abs(audio.getSample(0, 0)) > 1e-5f, "Native audition did not trigger");
+    if (!expect(std::abs(audio.getSample(0, 0)) > 1e-5f, "Native audition did not trigger"))
+        return false;
+
+    LayerForgeAudioProcessor delayedNoise;
+    delayedNoise.setRateAndBufferSizeDetails(sampleRate, blockSize);
+    if (!delayedNoise.setPatchStateJson(
+            R"({"noise":{"enabled":true,"type":"brown","delayMs":80,"gain":1,"decay":0.075},"master":{"saturationEnabled":true,"saturationType":"tube"}})"))
+        return false;
+    delayedNoise.prepareToPlay(sampleRate, blockSize);
+    bool delayedSound = false;
+    for (int attempt = 0; attempt < 300 && !delayedSound; ++attempt) {
+        for (int block = 0; block < 100; ++block) {
+            midi.clear();
+            delayedNoise.processBlock(audio, midi);
+        }
+        float earlyPeak = 0.0f, latePeak = 0.0f;
+        for (int block = 0; block < 50; ++block) {
+            midi.clear();
+            if (block == 0)
+                midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(127)), 0);
+            delayedNoise.processBlock(audio, midi);
+            for (int index = 0; index < blockSize; ++index) {
+                const auto time = static_cast<double>(block * blockSize + index) / sampleRate;
+                const auto value = std::abs(audio.getSample(0, index));
+                if (time < 0.079)
+                    earlyPeak = std::max(earlyPeak, value);
+                else if (time >= 0.085 && time < 0.14)
+                    latePeak = std::max(latePeak, value);
+            }
+        }
+        delayedSound = latePeak > 1e-5f;
+        if (delayedSound && !expect(earlyPeak < 1e-6f, "Native noise sounded before its delay"))
+            return false;
+        if (!delayedSound)
+            juce::Thread::sleep(10);
+    }
+    return expect(delayedSound, "Native delayed brown noise with tube saturation produced no sound");
 }
 }
 

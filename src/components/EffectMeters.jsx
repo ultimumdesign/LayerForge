@@ -57,11 +57,13 @@ export function EffectMeters({ effect }) {
     const hitTracker = createHitPeakTracker([MIN_PEAK, MIN_PEAK, MIN_REDUCTION_DB]);
     const onMeter = (event) => {
       const effects = event.detail?.effects;
-      if (!Array.isArray(effects) || effects.length !== 5 || effects.some((value) => !Number.isFinite(value) || value < 0)) {
+      if (!Array.isArray(effects) || effects.length !== 9 || effects.some((value) => !Number.isFinite(value) || value < 0)) {
         console.error('[LayerForge] Invalid effect meter data.');
         return;
       }
-      const current = effect === 'saturation' ? [...effects.slice(0, 2), 0] : effects.slice(2, 5);
+      const current = effect === 'saturation' ? [...effects.slice(0, 2), 0]
+        : effect === 'convolve' ? [...effects.slice(5, 7), 0]
+          : effect === 'ringMod' ? [...effects.slice(7, 9), 0] : effects.slice(2, 5);
       setValues(current);
       setHits(hitTracker.update(current, performance.now()));
       window.clearTimeout(timeout);
@@ -74,7 +76,7 @@ export function EffectMeters({ effect }) {
     };
   }, [effect]);
   return (
-    <div className={`effect-meters${effect === 'glue' ? ' has-reduction' : ''}`} aria-label={`${effect === 'glue' ? 'Compressor' : 'Saturation'} metering`}>
+    <div className={`effect-meters${effect === 'glue' ? ' has-reduction' : ''}`} aria-label={`${effect === 'glue' ? 'Compressor' : effect === 'convolve' ? 'Convolution' : effect === 'ringMod' ? 'Ring modulation' : 'Saturation'} metering`}>
       <PeakMeter label="INPUT" peak={values[0]} hitPeak={hits[0]} />
       <PeakMeter label="OUTPUT" peak={values[1]} hitPeak={hits[1]} />
       {effect === 'glue' && <GainReductionMeter reduction={values[2]} hitReduction={hits[2]} />}

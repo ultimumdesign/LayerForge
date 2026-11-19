@@ -22,7 +22,7 @@ float.
                  │
                  ▼  left/right sum × velocity
    ┌───────────── bus modules, in the saved order (default) ─────┐
-   │   + noise synth ► saturation (optional) ► glue (optional)   │
+   │   + noise ► ring mod ► convolution ► saturation ► glue     │
    └──────────────────────────────┬──────────────────────────────┘
                                   ▼
                  master clipper ► CEILING ► OUTPUT trim ► out
@@ -141,17 +141,26 @@ of 0–1.5 (up to about +3.5 dB) applied after all channel processing.
 ## Noise synth
 
 ```text
-white noise ► band-pass SVF (FREQ, RESO) ► envelope ► [trim window × curve]
+noise color ► band-pass SVF (FREQ, RESO) ► envelope ► [trim window × curve]
             ► clipper (CLIP DRV, SHAPE fixed at 0.45) ► MIX
 ```
 
-- **Source.** One uniform white-noise generator, shared by both sides (mono).
-  It is free-running, so every hit differs.
+- **Source.** One uniform white-noise generator, shared by both sides (mono),
+  feeds the selected color. White is unfiltered; pink uses Elementary's
+  approximate pink filter with a fixed gain of 10; brown uses a sample-rate
+  dependent 40 Hz one-pole low-pass with RMS normalization for white input.
+  Their levels after the band-pass vary with FREQ and RESO. The source is
+  free-running, so every hit differs. Pink's filter coefficients are fixed per
+  sample and its spectrum changes somewhat with sample rate.
 - **Filter.** Band-pass, FREQ 20–20 000 Hz, RESO (Q) 0.1–30.
 - **Envelope.** Time-based and identical in every renderer: 1 ms attack, then
   `exp(−6.91 · t / DECAY)` (DECAY, 2 ms–3 s, is the time to fall about 60 dB),
   then a 15 ms linear fade at `t = DECAY`. A trigger only restarts the clock,
   so the 28 ms gate does not shorten the noise.
+- **PLAY DLY.** A 0–1000 ms delay precedes the envelope and shifts the entire
+  trim window and gain curve. A retrigger restarts the voice and any pending
+  delay. The noise editor maps the delayed output back to the generated noise
+  timeline; the sum, live trace and WAV use output time.
 - **Window and curve.** IN/OUT and the gain curve span `DECAY + 16 ms`,
   normalized 0–1. With full trim and the default flat envelope this stage is
   skipped.
@@ -161,21 +170,59 @@ white noise ► band-pass SVF (FREQ, RESO) ► envelope ► [trim window × curv
 
 ### Order
 
-Noise, saturation and glue are user-ordered and saved in the patch (default:
-noise, saturation, glue). The channel sum comes first; each module then acts on
-the running bus. Disabled modules are removed from the graph.
+Noise, convolution, saturation, glue and ring modulation are user-ordered and saved in the patch
+(default: noise, ring modulation, convolution, saturation, glue). The channel sum comes first; each module then acts on
+the running bus. Disabled modules are removed from the graph. The popup M
+control also removes convolution, saturation, glue or ring modulation (including its output gain) from the
+graph while preserving its enabled state and settings. Muting noise instead
+silences that source. Effect meters continue to show the bypassed input/output;
+glue gain reduction reads zero.
+
+### Ring modulation
+
+The bypass-by-default module multiplies each bus channel by a sine carrier,
+reset on each hit. FREQUENCY ranges from 0.1 to 5000 Hz; its UI drag is
+logarithmic, while its host parameter remains linearly normalized. PHASE adds
+0–360° to the carrier phase. SPREAD detunes left and right by −5% and +5%
+times its 0–1 setting; at zero both channels have the same carrier.
+
+For `c = sin(2π phase)`, RECTIFY `r` crossfades `c` toward `abs(c)` for
+positive values or `-abs(c)` for negative values. With that result `s`, BIAS
+`b`, DRY/WET `m` and `g = 10^(OUTPUT / 20)`, each output is
+`g * x * ((1 - m) + m * (s + b))`. Bias and rectification introduce an
+unshifted component; bias can increase wet peaks by up to 6 dB. At zero bias,
+rectification and spread the wet signal has sum and difference sidebands and
+preserves stereo amplitude relationships. Spread can reduce mono compatibility.
+There is no oversampling, so high sidebands and rectification harmonics above
+Nyquist alias. All these continuous controls are smoothed; the module adds no
+tail.
+
+### Convolution
+
+The optional stereo effect uses independent generated left and right impulse
+responses (room 180 ms, plate 450 ms, chamber 300 ms). Each side processes the
+corresponding bus channel; this is not true-stereo cross-channel convolution.
+The wet path passes through predelay (0–200 ms), partitioned convolution and
+the same high/low-pass filter topology as the channels. Filter limits bypass
+their filters. DRY/WET crossfades dry and wet signals, then OUTPUT applies
+gain. Built-in responses are resampled to the processing rate with a
+windowed-sinc filter and gain compensation. The effect defaults to off.
+Switching profile or effect state rebuilds the graph and may interrupt tails.
 
 ### Saturation
 
-```text
-wet  = tanh(g · x) / tanh(g),   g = 10^(SAT DRIVE / 20)
-mix  = (1 − SAT DRY/WET) · x + SAT DRY/WET · wet
-out  = mix · 10^(SAT OUTPUT / 20)
-```
+With `g = 10^(SAT DRIVE / 20)`, the selectable wet paths are:
 
-Dividing by `tanh(g)` makes a full-scale input map to full scale. Small signals
-are boosted by about `g / tanh(g)` (≈ +6.3 dB at 6 dB drive), so drive also
-raises perceived loudness. Memoryless, no oversampling.
+- **Tape · soft:** `tanh(g · x) / tanh(g)`, the original symmetric curve.
+  Small signals are boosted by about `g / tanh(g)` (≈ +6.3 dB at 6 dB drive).
+- **Tube · asymmetric:** `(tanh(g · x + 0.3) − tanh(0.3)) /
+  (tanh(g − 0.3) + tanh(0.3))`, followed by Elementary's DC blocker. The bias
+  produces even harmonics; the blocker has a sample-rate-dependent cutoff.
+- **Digital · hard:** `clamp(g · x, −1, 1)`.
+
+The dry/wet blend is `(1 − SAT DRY/WET) · x + SAT DRY/WET · wet`, followed by
+`10^(SAT OUTPUT / 20)`. Levels differ between modes; these are simplified
+waveshaping styles rather than hardware models. No mode oversamples.
 
 ### Glue compressor
 
@@ -225,12 +272,14 @@ After the bus: master clipper (BUS DRIVE 0–24 dB, SOFT/HARD 0–1), then
 
 ## Parameter smoothing
 
-Continuous controls (pitch, delay, filters, width, MIX, noise, saturation,
-glue, effect OUTPUT gains and ceiling)
+Continuous controls (pitch, channel delay, filters, width, MIX, noise frequency,
+resonance, clip drive and mix, convolution predelay and mix, saturation, glue, ring modulation,
+effect OUTPUT gains and ceiling)
 pass through Elementary's `el.sm`, a one-pole smoother with a 20 ms time
 constant, to avoid zipper noise. Changes settle in about 100 ms. Structural
-changes (enabling a module, reaching a filter bypass limit, editing the
-envelope, trim or sample) rebuild the graph; the renderer crossfades them, so
+changes (enabling a module, changing a convolution profile, noise or saturation type or noise
+PLAY DLY, reaching a filter bypass limit, editing the envelope, trim or sample)
+rebuild the graph; the renderer crossfades them, so
 the first hit after an edit can fade in briefly.
 
 ## Offline renderer, previews and WAV export
@@ -247,6 +296,11 @@ renderer at a fixed **44.1 kHz** in 128-sample blocks after a 0.5 s warm-up.
 - Previews use the same render. They differ from live playback because of
   noise, velocity, overlapping hits, host sample rate and filter or
   envelope-follower history.
+- The editable channel previews are captured from their processed pre-bus
+  lanes and binned against each channel's own sample, trim, pitch, phase and
+  delay duration. They are unaffected by other channels' durations or master
+  bus processing and tails. Sum-comparison lanes remain on a shared output
+  timeline.
 
 WAV export stays at 44.1 kHz even if the host runs at another sample rate.
 

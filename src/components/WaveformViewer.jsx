@@ -36,6 +36,108 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function ParameterValueInput({ title, name, value, min, max, step, unit, decimals, onChange }) {
+  const formattedValue = Number(value).toFixed(decimals);
+  const commitValue = (event) => {
+    const input = event.currentTarget;
+    const text = input.value.trim();
+    const parsed = text ? Number(text) : Number.NaN;
+    if (!Number.isFinite(parsed)) {
+      input.setCustomValidity('Enter a number.');
+      input.reportValidity();
+      return;
+    }
+
+    input.setCustomValidity('');
+    const bounded = clamp(parsed, min, max);
+    const next = Number(bounded.toFixed(decimals));
+    input.value = next.toFixed(decimals);
+    onChange(next);
+  };
+
+  return (
+    <input
+      className="waveform-parameter-input"
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      key={value}
+      defaultValue={formattedValue}
+      aria-label={`${title} ${name} exact value in ${unit}`}
+      aria-valuetext={`${formattedValue} ${unit}`}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onChange={(event) => event.currentTarget.setCustomValidity('')}
+      onBlur={commitValue}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          event.currentTarget.setCustomValidity('');
+          event.currentTarget.value = formattedValue;
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+}
+
+export function PlayDelayControl({ title, value, onChange }) {
+  const drag = useRef(null);
+  const setValue = (next) => onChange(Math.round(clamp(next, 0, 1000)));
+  return (
+    <div className="play-delay-control" data-dsp-label="PLAY DELAY"
+      data-dsp-help="Delays playback start without adding echoes or repeats.">
+      <HelpTip text="PLAY DLY: Drag the arrows vertically; Shift-drag for fine control. Type a value or double-click the arrows to reset.">
+        <span className="knob-label">PLAY DLY</span>
+      </HelpTip>
+      <div className="play-delay-readout">
+        <ParameterValueInput title={title} name="play delay" value={value}
+          min={0} max={1000} step={1} unit="ms" decimals={0} onChange={setValue} />
+        <span className="waveform-parameter-unit">ms</span>
+        <div className="play-delay-drag" role="slider" tabIndex={0}
+          aria-label={`${title} play delay`} aria-valuemin={0} aria-valuemax={1000}
+          aria-valuenow={value} aria-valuetext={`${value} ms`} aria-orientation="vertical"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            drag.current = { pointerId: event.pointerId, y: event.clientY, value };
+          }}
+          onPointerMove={(event) => {
+            if (drag.current?.pointerId !== event.pointerId) return;
+            setValue(drag.current.value + (drag.current.y - event.clientY) * (event.shiftKey ? 0.1 : 1));
+          }}
+          onPointerUp={(event) => {
+            if (drag.current?.pointerId !== event.pointerId) return;
+            drag.current = null;
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={() => { drag.current = null; }}
+          onLostPointerCapture={() => { drag.current = null; }}
+          onDoubleClick={() => setValue(0)}
+          onKeyDown={(event) => {
+            let next;
+            if (event.key === 'ArrowUp' || event.key === 'ArrowRight') next = value + 1;
+            else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') next = value - 1;
+            else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = 1000;
+            else return;
+            event.preventDefault();
+            setValue(next);
+          }}
+        ><span aria-hidden="true">▲<br />▼</span></div>
+      </div>
+    </div>
+  );
+}
+
+export function getWaveformViewCoordinates(svg, event) {
+  const matrix = svg?.getScreenCTM();
+  if (!matrix || matrix.a * matrix.d === matrix.b * matrix.c) return null;
+  const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+  return Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
+}
+
 function SampleNameText({ name }) {
   const viewportRef = useRef(null);
   const textRef = useRef(null);
@@ -169,7 +271,10 @@ export function WaveformViewer({
     const scroll = (event) => {
       const delta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
       if (!delta) return;
-      const next = clamp(pan + delta / (display.clientWidth * (zoom - 1)), 0, 1);
+      const matrix = svgRef.current?.getScreenCTM();
+      const width = matrix ? Math.hypot(matrix.a, matrix.b) * 500 : display.clientWidth;
+      if (width <= 0) return;
+      const next = clamp(pan + delta / (width * (zoom - 1)), 0, 1);
       if (next === pan) return;
       event.preventDefault();
       setPan(next);
@@ -235,6 +340,9 @@ export function WaveformViewer({
     ? axisRange.end - axisRange.start < 0.01 ? 4 : axisRange.end - axisRange.start < 1 ? 2 : 1
     : 0;
   const showTrace = Boolean(traceEnabled && liveTrace?.min?.length && liveTrace.capturedSec > 0 && duration > 0);
+  const traceStatus = traceEnabled
+    ? `${liveTrace?.status === 'GAP' ? 'GAP - RETRIGGER' : liveTrace?.status || 'ARMED'}${liveTrace?.limited ? ' (4S)' : ''}`
+    : 'OFF';
   const displayGain = useMemo(() => {
     if (!compact || !fitAmplitude) return 1;
     return getWaveformFitGain(showTrace ? liveTrace : waveformData);
@@ -264,20 +372,25 @@ export function WaveformViewer({
     onTrimChange && 'Drag the IN and OUT handles to trim playback.',
     onEnvelopeChange && 'Drag envelope points to shape gain; double-click to add a point. Drag a segment handle to bend it.'
   ].filter(Boolean).join(' ');
+  const hoverHelp = compact
+    ? `${title}: Use zoom and display controls to change the view${onExpand ? '; click EXPAND to compare' : ''}.`
+    : `${title} waveform: ${[
+      onTrimChange && `Drag IN/OUT to trim${snapSilence ? '; Ctrl-drag to snap near silence' : ''}.`,
+      onEnvelopeChange && 'Drag points or segment handles; double-click to add a point.'
+    ].filter(Boolean).join(' ')}`;
+
+  const getViewCoordinates = (event) => getWaveformViewCoordinates(svgRef.current, event);
 
   const getViewPosition = (event) => {
-    const bounds = svgRef.current?.getBoundingClientRect();
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
-
-    const x = ((event.clientX - bounds.left) / bounds.width) * 500;
-    const y = ((event.clientY - bounds.top) / bounds.height) * 112;
+    const point = getViewCoordinates(event);
+    if (!point) return null;
     return {
       samplePosition: clamp(
-        viewRange.start + ((x - ENVELOPE_LEFT) / ENVELOPE_WIDTH) * viewSpan,
+        viewRange.start + ((point.x - ENVELOPE_LEFT) / ENVELOPE_WIDTH) * viewSpan,
         0,
         1
       ),
-      value: getEnvelopeDisplayValue(y)
+      value: getEnvelopeDisplayValue(point.y)
     };
   };
 
@@ -300,12 +413,14 @@ export function WaveformViewer({
 
   const beginCurveDrag = (event, index) => {
     if (!onEnvelopeChange) return;
+    const point = getViewCoordinates(event);
+    if (!point) return;
     event.preventDefault();
     event.stopPropagation();
     dragTarget.current = {
       type: 'curve',
       index,
-      startY: event.clientY,
+      startY: point.y,
       curve: envelopePoints[index].curve ?? 0,
       direction: Math.sign(envelopePoints[index + 1].value - envelopePoints[index].value)
     };
@@ -320,12 +435,14 @@ export function WaveformViewer({
 
   const beginTrimDrag = (event, edge) => {
     if (!onTrimChange) return;
+    const point = getViewCoordinates(event);
+    if (!point) return;
     event.preventDefault();
     event.stopPropagation();
     dragTarget.current = {
       type: 'trim',
       edge,
-      startX: event.clientX,
+      startX: point.x,
       startValue: edge === 'start' ? safeTrimStart : safeTrimEnd
     };
     setTrimDragView(viewRange);
@@ -335,17 +452,17 @@ export function WaveformViewer({
   const movePoint = (event) => {
     const target = dragTarget.current;
     if (!target) return;
+    const point = getViewCoordinates(event);
+    if (!point) return;
     if (target.type === 'curve') {
-      const height = svgRef.current?.getBoundingClientRect().height || 1;
-      updateCurve(target.index, target.curve - (event.clientY - target.startY) * target.direction / (height * 0.75));
+      updateCurve(target.index, target.curve - (point.y - target.startY) * target.direction / (112 * 0.75));
       return;
     }
     const position = getViewPosition(event);
     if (!position) return;
     if (target.type === 'trim') {
-      const width = svgRef.current?.getBoundingClientRect().width || 1;
       let samplePosition = target.startValue +
-        (event.clientX - target.startX) / width * (500 / ENVELOPE_WIDTH) * viewSpan;
+        (point.x - target.startX) / ENVELOPE_WIDTH * viewSpan;
 
       // Apply snap-to-silence for end trim (when using Ctrl/Cmd)
       if (snapSilence && target.edge === 'end' && samples?.length && event.ctrlKey) {
@@ -544,7 +661,8 @@ export function WaveformViewer({
       : [];
 
   const zoomControls = (compact || (fitTrimmed && samples?.length)) && (
-    <div className="waveform-zoom-controls" role="group" aria-label={compact ? 'Waveform zoom' : `${title} waveform zoom`}>
+    <div className="waveform-zoom-controls" role="group" aria-label={compact ? 'Waveform zoom' : `${title} waveform zoom`}
+      data-dsp-label="WAVEFORM ZOOM" data-dsp-help="Changes the visible time range only; it does not change the audio.">
       <span>ZOOM</span>
       <button
         type="button"
@@ -568,6 +686,7 @@ export function WaveformViewer({
           type="button"
           className="waveform-view-toggle"
           aria-label={`${fitSelection ? 'Show full sample' : 'Fit selection'} for ${title}`}
+          data-dsp-label="WAVEFORM FIT" data-dsp-help="Switches between the full timeline and a view fitted around the trim selection."
           onClick={() => {
             setFitSelection((value) => !value);
             setZoom(1);
@@ -586,6 +705,9 @@ export function WaveformViewer({
       className="waveform-expand-button"
       onClick={onExpand}
       aria-label={`${compact ? 'Expand' : 'Open'} ${title} waveform${compact ? ' view' : ' editor'}`}
+      data-dsp-label="EXPAND WAVEFORM" data-dsp-help={compact
+        ? 'Opens the processed layer and output comparison.'
+        : 'Opens the full waveform editor for more room.'}
     >
       {compact ? 'EXPAND' : 'EDIT WAVE'}
     </button>
@@ -594,13 +716,14 @@ export function WaveformViewer({
   return (
     <section
       className={`waveform-panel${compact ? ' waveform-panel-compact' : ''}${expanded ? ' waveform-panel-expanded' : ''}`}
+      data-dsp-label="WAVEFORM" data-dsp-help={helpText}
       style={{ '--wave-accent': accent }}
       onDragOver={onSampleDrop ? (event) => event.preventDefault() : undefined}
       onDrop={onSampleDrop}
     >
       <div className={`waveform-heading${!compact ? ' waveform-heading-source' : ''}`}>
         <div className={`waveform-heading-title${sampleMenuOpen ? ' sample-menu-is-open' : ''}`}>
-          <HelpTip text={helpText}>
+          <HelpTip text={hoverHelp}>
             <div className="waveform-heading-label">
               {!compact && !sampleName && <span className="waveform-eyebrow">{eyebrow}</span>}
               {!sampleName && <strong>{title}</strong>}
@@ -611,6 +734,7 @@ export function WaveformViewer({
                     className="waveform-sample-name sample-menu-trigger"
                     title={sampleName}
                     aria-label={`${title} sample options: ${sampleName}`}
+                    data-dsp-label="SAMPLE OPTIONS" data-dsp-help="Replace, locate or move the sample without moving channel processing settings."
                     aria-haspopup="menu"
                     aria-expanded={sampleMenuOpen}
                     onClick={() => setSampleMenuOpen((open) => !open)}
@@ -646,53 +770,20 @@ export function WaveformViewer({
         </div>
         <div className="waveform-heading-controls">
           {onClipGainChange && (
-            <div className="waveform-clip-gain" onDoubleClick={() => onClipGainChange(0)}>
-              <HelpTip text="Sample gain before channel processing. Drag the slider; double-click to reset to 0 dB.">
-                <span>CLIP GAIN</span>
+            <div className="waveform-parameter-control waveform-clip-gain"
+              data-dsp-label="CLIP GAIN"
+              data-dsp-help="Adjusts sample gain before the channel envelope, filter and clipper."
+              onDoubleClick={() => onClipGainChange(0)}>
+              <HelpTip text="CLIP GAIN: Drag the slider or type a value; double-click to reset.">
+                <span className="waveform-parameter-label">CLIP GAIN</span>
               </HelpTip>
-              <input
-                type="range"
-                min="-60"
-                max="12"
-                step="0.1"
-                value={clipGain}
+              <input type="range" min={-60} max={12} step={0.1} value={clipGain}
                 aria-label={`${title} clip gain`}
                 aria-valuetext={`${Number(clipGain).toFixed(1)} dB`}
-                onChange={(event) => onClipGainChange(Number(event.target.value))}
-              />
-              <input
-                className="waveform-clip-gain-value"
-                type="number"
-                min="-60"
-                max="12"
-                step="0.1"
-                key={clipGain}
-                defaultValue={Number(clipGain).toFixed(1)}
-                aria-label={`${title} clip gain exact value in dB`}
-                onDoubleClick={(event) => event.stopPropagation()}
-                onChange={(event) => event.target.setCustomValidity('')}
-                onBlur={(event) => {
-                  const value = event.target.valueAsNumber;
-                  if (!Number.isFinite(value)) {
-                    event.target.setCustomValidity('Enter a number in dB.');
-                    event.target.reportValidity();
-                    return;
-                  }
-                  event.target.setCustomValidity('');
-                  const bounded = Math.max(-60, Math.min(12, value));
-                  event.target.value = bounded.toFixed(1);
-                  onClipGainChange(bounded);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                  if (event.key === 'Escape') {
-                    event.currentTarget.setCustomValidity('');
-                    event.currentTarget.value = Number(clipGain).toFixed(1);
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-              <span>dB</span>
+                onChange={(event) => onClipGainChange(Number(event.target.value))} />
+              <ParameterValueInput title={title} name="clip gain" value={clipGain}
+                min={-60} max={12} step={0.1} unit="dB" decimals={1} onChange={onClipGainChange} />
+              <span className="waveform-parameter-unit">dB</span>
             </div>
           )}
           {compact && expandButton}
@@ -709,6 +800,7 @@ export function WaveformViewer({
               type="button"
               className="waveform-reset-button"
               aria-label={`${title} reset gain envelope to default`}
+              data-dsp-label="RESET ENVELOPE" data-dsp-help="Resets the gain envelope to a flat full-level shape."
               onClick={() =>
                 onEnvelopeChange(DEFAULT_ENVELOPE_POINTS.map((point) => ({ ...point })))
               }
@@ -718,7 +810,8 @@ export function WaveformViewer({
             </button>
           )}
           {onDetailChange && (
-            <label className="waveform-detail-control">
+            <label className="waveform-detail-control" data-dsp-label="WAVEFORM DETAIL"
+              data-dsp-help="Changes waveform preview detail only; it does not change the audio.">
               <span>DETAIL</span>
               <select value={detail} onChange={(event) => onDetailChange(Number(event.target.value))} aria-label={`${title} waveform detail`}>
                 <option value={512}>STANDARD · 512</option>
@@ -738,6 +831,7 @@ export function WaveformViewer({
             type="button"
             className="waveform-load-overlay"
             aria-label={`Load sample for ${title}`}
+            data-dsp-label="LOAD SAMPLE" data-dsp-help="Loads a sample into this channel; the source file is not modified."
             onClick={onLoadSample}
           >
             DROP OR CLICK TO LOAD
@@ -809,7 +903,9 @@ export function WaveformViewer({
                 const y = getEnvelopeDisplayY(getEnvelopeSegmentValue(point, next, 0.5));
                 const curve = point.curve ?? 0;
                 return (
-                  <g key={`curve-${index}`} data-waveform-control onPointerDown={(event) => beginCurveDrag(event, index)}>
+                  <g key={`curve-${index}`} data-waveform-control data-dsp-label="ENVELOPE CURVE"
+                    data-dsp-help="Bends this gain-envelope segment between its two points."
+                    onPointerDown={(event) => beginCurveDrag(event, index)}>
                     <circle className="waveform-envelope-point-hit-area" cx={x} cy={y} r="9" />
                     <circle
                       className="waveform-curve-handle"
@@ -837,7 +933,8 @@ export function WaveformViewer({
                 const curve = point.curve ?? 0;
                 const hasCurve = Math.abs(curve) > 0.001;
                 return (
-                  <g key={index} data-envelope-point>
+                  <g key={index} data-envelope-point data-dsp-label="ENVELOPE POINT"
+                    data-dsp-help="Sets gain at this position in the playable window; intermediate points can also move in time.">
                     <circle
                       className="waveform-envelope-point-hit-area"
                       cx={x}
@@ -898,6 +995,8 @@ export function WaveformViewer({
                 <g
                   key={edge}
                   data-waveform-control
+                  data-dsp-label={edge === 'start' ? 'TRIM IN' : 'TRIM OUT'}
+                  data-dsp-help="Sets the playable window without changing the source file."
                   className={`waveform-trim-handle waveform-trim-handle-${edge}`}
                   role="slider"
                   tabIndex={0}
@@ -958,7 +1057,8 @@ export function WaveformViewer({
                 step="0.001"
                 value={pan}
                 aria-label={`${title} waveform horizontal scroll`}
-                title="Scroll the zoomed waveform"
+                data-dsp-label="WAVEFORM PAN" data-dsp-help="Moves the visible time range when zoomed; it does not change the audio."
+                title={helpEnabled ? 'WAVEFORM PAN: Drag to scroll.' : undefined}
                 onChange={(event) => setPan(Number(event.target.value))}
               />
             )}
@@ -992,15 +1092,16 @@ export function WaveformViewer({
             {onTraceEnabledChange && (
               <button
                 type="button"
-                className="waveform-trace-button"
+                className="waveform-trace-button waveform-trace-compact"
                 style={{ '--trace-accent': traceAccent }}
                 aria-pressed={traceEnabled}
+                aria-label={`TRACE ${traceStatus}`}
+                data-dsp-label="LIVE TRACE" data-dsp-help="Captures the most recent played output for comparison with the offline preview."
                 onClick={() => onTraceEnabledChange(!traceEnabled)}
-                title={helpEnabled ? 'Show the last played output instead of the preview; captured for up to four seconds.' : undefined}
+                title={helpEnabled ? 'LIVE TRACE: Click to toggle.' : undefined}
               >
-                {traceEnabled
-                  ? `TRACE ${liveTrace?.status === 'GAP' ? 'GAP - RETRIGGER' : liveTrace?.status === 'ERROR' ? 'ERROR' : liveTrace?.status || 'ARMED'}${liveTrace?.limited ? ' (4S)' : ''}`
-                  : 'TRACE OFF'}
+                <span className="waveform-trace-label">TRACE</span>
+                <span className="waveform-trace-status">{traceStatus}</span>
               </button>
             )}
             {onFitAmplitudeChange && (
@@ -1009,7 +1110,8 @@ export function WaveformViewer({
                 className="waveform-fit-button"
                 aria-pressed={fitAmplitude}
                 aria-label={`Sum waveform display fit ${fitAmplitude ? 'on' : 'off'}`}
-                title={helpEnabled ? `Display-only vertical fit, limited to 20x. Click for ${fitAmplitude ? 'actual scale' : 'fit'}.` : undefined}
+                data-dsp-label="DISPLAY FIT" data-dsp-help="Changes waveform display magnification only, limited to 20 times; it does not change output level."
+                title={helpEnabled ? `DISPLAY FIT: Click for ${fitAmplitude ? 'actual scale' : 'fit'}.` : undefined}
                 onClick={() => onFitAmplitudeChange(!fitAmplitude)}
               >
                 {fitAmplitude ? `FIT x${displayGain.toFixed(1)}` : 'ACTUAL 1:1'}

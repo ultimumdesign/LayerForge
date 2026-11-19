@@ -462,6 +462,7 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
     lastStateRevision = audioProcessor.getStateRevision();
     lastParameterValues.resize(static_cast<size_t>(audioProcessor.getParameters().size()),
                                std::numeric_limits<float>::quiet_NaN());
+    lastEditorParameterSequences.resize(lastParameterValues.size(), 0);
     auto browserOptions = juce::WebBrowserComponent::Options{};
 #if JUCE_WINDOWS
     const auto webViewDataFolder =
@@ -530,12 +531,16 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                         reportNativeDiagnostic(webView.get(), "error", "Invalid editor height from the UI");
                         return;
                     }
+                    if (!autoHeightEnabled)
+                        return;
                     auto maximumHeight = 1000;
                     if (const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()))
                         maximumHeight = juce::jlimit(300, maximumHeight, display->userArea.getHeight() - 60);
                     const auto targetHeight = juce::jlimit(300, maximumHeight, static_cast<int>(std::ceil(height)));
-                    if (targetHeight != getHeight())
+                    if (targetHeight != getHeight()) {
+                        const juce::ScopedValueSetter<bool> applyingHeight(applyingAutomaticHeight, true);
                         setSize(getWidth(), targetHeight);
+                    }
                     return;
                 }
                 if (type == "traceActive") {
@@ -568,12 +573,23 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                 }
                 if (type == "parameterChange") {
                     const auto rawRevision = static_cast<juce::int64>(messagePayload.getProperty("revision", -1));
-                    if (rawRevision < 0)
+                    const auto sequence = static_cast<juce::int64>(messagePayload.getProperty("sequence", -1));
+                    const auto id = messagePayload.getProperty("id", {}).toString();
+                    const auto value = static_cast<float>(static_cast<double>(messagePayload.getProperty("value", {})));
+                    if (rawRevision < 0 || sequence < 0 || !std::isfinite(value))
                         return;
                     const auto revision = static_cast<std::uint64_t>(rawRevision);
-                    audioProcessor.setParameterFromEditor(messagePayload.getProperty("id", {}).toString(),
-                        static_cast<float>(static_cast<double>(messagePayload.getProperty("value", {}))),
-                        revision);
+                    audioProcessor.setParameterFromEditor(id, value, revision);
+                    if (audioProcessor.getStateRevision() == revision) {
+                        const auto& parameters = audioProcessor.getParameters();
+                        for (int i = 0; i < parameters.size(); ++i)
+                            if (const auto* parameter = dynamic_cast<juce::RangedAudioParameter*>(parameters[i]);
+                                parameter != nullptr && parameter->paramID == id) {
+                                lastEditorParameterSequences[static_cast<size_t>(i)] =
+                                    static_cast<std::uint64_t>(sequence);
+                                break;
+                            }
+                    }
                     return;
                 }
 
@@ -589,6 +605,7 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
                     std::vector<LayerForgeAudioProcessor::StoredSample> samples;
                     std::uint64_t revision;
                     audioProcessor.getPluginStateSnapshot(stateJson, samples, revision);
+                    std::fill(lastEditorParameterSequences.begin(), lastEditorParameterSequences.end(), 0);
                     for (const auto& sample : samples)
                         emitSampleRestoreEvents(
                             webView.get(), requestId, sample.key, sample.samples, sample.sampleRate);
@@ -940,8 +957,12 @@ LayerForgeAudioProcessorEditor::LayerForgeAudioProcessorEditor(LayerForgeAudioPr
 #endif
 
     setResizable(true, true);
-    setResizeLimits(1120, 300, 1600, 1000);
-    setSize(1120, 600);
+    setResizeLimits(720, 300, 1600, 1000);
+    auto initialWidth = 896;
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        initialWidth = juce::jlimit(720, initialWidth, display->userArea.getWidth() - 60);
+    setSize(initialWidth, 600);
+    editorReady = true;
     startTimer(16);
 }
 
@@ -974,7 +995,12 @@ void LayerForgeAudioProcessorEditor::timerCallback()
         if (lastParameterValues[static_cast<size_t>(i)] == value)
             continue;
         lastParameterValues[static_cast<size_t>(i)] = value;
-        changes->setProperty(parameter->paramID, static_cast<double>(value));
+        juce::DynamicObject::Ptr update(new juce::DynamicObject());
+        update->setProperty("value", static_cast<double>(value));
+        update->setProperty("sequence", static_cast<juce::int64>(
+            lastEditorParameterSequences[static_cast<size_t>(i)]));
+        update->setProperty("revision", static_cast<juce::int64>(revision));
+        changes->setProperty(parameter->paramID, update.get());
         changed = true;
     }
     if (changed)
@@ -991,7 +1017,7 @@ void LayerForgeAudioProcessorEditor::timerCallback()
     meter->setProperty("min", 0.0);
     meter->setProperty("max", static_cast<double>(audioProcessor.takeOutputPeak()));
     juce::Array<juce::var> effects;
-    for (size_t index = 0; index < 5; ++index)
+    for (size_t index = 0; index < 9; ++index)
         effects.add(static_cast<double>(audioProcessor.takeEffectPeak(index)));
     meter->setProperty("effects", juce::var(effects));
     webView->emitEventIfBrowserIsVisible("layerforgeOutputMeter", meter.get());
@@ -1033,6 +1059,8 @@ void LayerForgeAudioProcessorEditor::timerCallback()
 
 void LayerForgeAudioProcessorEditor::resized()
 {
+    if (editorReady && !applyingAutomaticHeight)
+        autoHeightEnabled = false;
     if (webView)
         webView->setBounds(getLocalBounds());
 }

@@ -112,7 +112,7 @@ private:
     std::vector<TraceFrame> traceFrames = std::vector<TraceFrame>(traceCapacity);
     std::atomic<int> traceSession { 0 };
     std::atomic<float> outputPeak { 0.0f };
-    std::array<std::atomic<float>, 5> effectPeaks {};
+    std::array<std::atomic<float>, 9> effectPeaks {};
     std::uint64_t traceFrameCounter = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(LayerForgeAudioProcessor)

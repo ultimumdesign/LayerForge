@@ -3,7 +3,7 @@
 **A three-channel drum-layering instrument for the DAW.** Stack up to three
 samples with a synthesized noise layer, shape each with a drawn gain envelope,
 transient control, filters and clipping, then process the mix through optional
-master saturation and compression followed by a master clipper.
+master convolution, saturation, compression and ring modulation followed by a master clipper.
 
 Built with [Elementary Audio](https://www.elementary.audio/), React and
 JUCE 8. Formats: **VST3** (macOS, Windows) and **AU** (macOS). Licensed under
@@ -35,9 +35,10 @@ the [installation guide](USER_GUIDE.md#installation).
 - **Drawn dynamics:** edit trims and curved gain envelopes directly on the
   processed waveform. Newly loaded samples fit their trim around audible
   content; the full source remains available.
-- **Master bus:** reorderable noise, saturation and stereo-linked glue
-  compression feeding a master clipper, ceiling and output trim, with
-  per-effect gain, peak meters and compressor gain reduction.
+- **Master bus:** reorderable noise, three-profile convolution, saturation,
+  stereo-linked glue compression and ring modulation feeding a master clipper,
+  ceiling and output trim. Ring modulation includes carrier phase, bias,
+  rectification and stereo spread; effects provide output gain and peak meters.
 - **See what you hear:** compare final output, pre-master sum, each channel and
   noise in Output Scope, with a live trace of the last hit.
 - **Presets and exports:** `.lfpreset` files reference original samples;

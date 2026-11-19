@@ -1,7 +1,8 @@
 import { createNode, el } from '@elemaudio/core';
+import { builtinImpulseKey } from './convolution.js';
 import { DEFAULT_BUS_ORDER, DEFAULT_ENVELOPE_POINTS, getSamplePhaseShift, getSampleTrimRange } from './parameters.js';
 import { getEnvelopeSequence } from './envelope.js';
-import { transientShaper, hybridClipper, channelFilter, glueCompressor, saturator } from './nodes.js';
+import { transientShaper, hybridClipper, channelFilter, colorNoise, glueCompressor, saturator } from './nodes.js';
 
 /**
  * Builds the complete 3-Channel Drum Layerer + Noise Engine + Master Bus DSP Graph.
@@ -112,7 +113,7 @@ function buildDrumNodes(state, nativeMidi = false) {
     state.noise.enabled && !state.noise.mute && (!anySolo || state.noise.solo) && state.noise.gain > 0.0005;
 
   if (noiseAudible) {
-    const rawNoise = el.noise({ key: 'noise:src' });
+    const rawNoise = colorNoise(el.noise({ key: 'noise:src' }), state.noise.type);
     const nFreq = el.sm(el.const({ key: 'noise:freq', value: state.noise.cutoff }));
     const nRes = el.sm(el.const({ key: 'noise:res', value: state.noise.q }));
     const bpNoise = el.svf({ mode: 'bandpass' }, nFreq, nRes, rawNoise);
@@ -123,11 +124,13 @@ function buildDrumNodes(state, nativeMidi = false) {
     const decay = state.noise.decay;
     const restart = nativeMidi ? triggerCount : gate;
     const armed = nativeMidi ? el.geq(triggerCount, 1) : el.latch(gate, 1);
-    const seconds = el.div(el.sub(el.accum(1, restart), 1), el.sr());
+    const elapsed = el.div(el.sub(el.accum(1, restart), 1), el.sr());
+    const delay = Math.max(0, state.noise.delayMs ?? 0) / 1000;
+    const seconds = delay ? el.max(0, el.sub(elapsed, delay)) : elapsed;
     const attackRamp = el.min(1, el.div(seconds, attack));
     const decayCurve = el.exp(el.mul(-6.91 / decay, seconds));
     const tailFade = el.max(0, el.min(1, el.sub(1, el.div(el.sub(seconds, decay), tail))));
-    const env = el.mul(armed, attackRamp, decayCurve, tailFade);
+    const env = el.mul(armed, delay ? el.geq(elapsed, delay) : 1, attackRamp, decayCurve, tailFade);
     const trimStart = state.noise.trimStart ?? 0;
     const trimEnd = state.noise.trimEnd ?? 1;
     const points = state.noise.envelopePoints || DEFAULT_ENVELOPE_POINTS;
@@ -137,7 +140,9 @@ function buildDrumNodes(state, nativeMidi = false) {
     let enveloped = el.mul(bpNoise, env);
     if (trimStart !== 0 || trimEnd !== 1 || !defaultEnvelope) {
       const duration = state.noise.decay + 0.016;
-      const position = el.syncphasor(el.div(1, duration), nativeMidi ? triggerCount : gate);
+      const position = delay
+        ? el.div(seconds, duration)
+        : el.syncphasor(el.div(1, duration), nativeMidi ? triggerCount : gate);
       const normalized = el.div(el.sub(position, trimStart), trimEnd - trimStart);
       const sequence = getEnvelopeSequence(points).map((point) => ({ time: point.time, value: point.value }));
       const shape = el.sparseq2({ key: 'noise:envelope', seq: sequence, interpolate: 1 }, normalized);
@@ -160,21 +165,66 @@ function buildDrumNodes(state, nativeMidi = false) {
   let glueInput = el.const({ value: 0 });
   let glueOutput = el.const({ value: 0 });
   let glueReduction = el.const({ value: 0 });
+  let convolveInput = el.const({ value: 0 });
+  let convolveOutput = el.const({ value: 0 });
+  let ringModInput = el.const({ value: 0 });
+  let ringModOutput = el.const({ value: 0 });
   const stereoPeak = (signals) => el.max(el.abs(signals[0]), el.abs(signals[1]));
   const effectGain = (key, db) => el.add(1, el.sm(el.const({ key, value: Math.pow(10, db / 20) - 1 })));
   for (const module of state.master.busOrder || DEFAULT_BUS_ORDER) {
     if (module === 'noise') {
       bus = bus.map((signal) => el.add(signal, el.mul(velGain, noiseNode)));
+    } else if (module === 'convolve') {
+      convolveInput = stereoPeak(bus);
+      if (state.master.convolveEnabled && !state.master.convolveMute) {
+        const { convolveProfile: profile } = state.master;
+        const paths = [builtinImpulseKey(profile, 'left'), builtinImpulseKey(profile, 'right')];
+        const mix = el.sm(el.const({ key: 'master:convolve:mix', value: state.master.convolveMix }));
+        const gain = effectGain('master:convolve:output', state.master.convolveGainDb);
+        const delay = el.mul(el.sr(), el.sm(el.const({
+          key: 'master:convolve:predelay', value: state.master.convolvePredelay / 1000
+        })));
+        bus = bus.map((signal, side) => {
+          const delayed = el.delay({ key: `master:convolve:delay:${side}`, size: 192000 }, delay, 0, signal);
+          const wet = el.convolve({ key: `master:convolve:${side}:${paths[side]}`, path: paths[side] }, delayed);
+          const filtered = channelFilter(`master:convolve:filter:${side}`, wet,
+            state.master.convolveLowCut, state.master.convolveHighCut);
+          return el.mul(gain, el.add(el.mul(el.sub(1, mix), signal), el.mul(mix, filtered)));
+        });
+      }
+      convolveOutput = stereoPeak(bus);
+    } else if (module === 'ringMod') {
+      ringModInput = stereoPeak(bus);
+      if (state.master.ringModEnabled && !state.master.ringModMute) {
+        const frequency = el.sm(el.const({ key: 'master:ringMod:frequency', value: state.master.ringModFrequency }));
+        const trigger = nativeMidi ? triggerCount : el.accum(el.max(0, el.sub(gate, el.z(gate))), 0);
+        const phase = el.sm(el.const({ key: 'master:ringMod:phase', value: state.master.ringModPhase / 360 }));
+        const bias = el.sm(el.const({ key: 'master:ringMod:bias', value: state.master.ringModBias }));
+        const rectify = el.sm(el.const({ key: 'master:ringMod:rectify', value: state.master.ringModRectify }));
+        const spread = el.sm(el.const({ key: 'master:ringMod:spread', value: state.master.ringModSpread }));
+        const mix = el.sm(el.const({ key: 'master:ringMod:mix', value: state.master.ringModMix }));
+        const gain = effectGain('master:ringMod:output', state.master.ringModGainDb);
+        bus = bus.map((signal, side) => {
+          const rate = el.mul(frequency, el.add(1, el.mul(side === 0 ? -0.05 : 0.05, spread)));
+          const carrier = el.sin(el.mul(2 * Math.PI, el.add(el.syncphasor(rate, trigger), phase)));
+          const absolute = el.abs(carrier);
+          const shaped = el.add(carrier,
+            el.mul(el.max(0, rectify), el.sub(absolute, carrier)),
+            el.mul(el.max(0, el.mul(-1, rectify)), el.sub(el.mul(-1, absolute), carrier)));
+          return el.mul(gain, signal, el.add(el.sub(1, mix), el.mul(mix, el.add(shaped, bias))));
+        });
+      }
+      ringModOutput = stereoPeak(bus);
     } else if (module === 'saturation') {
       saturationInput = stereoPeak(bus);
-      if (state.master.saturationEnabled) {
+      if (state.master.saturationEnabled && !state.master.saturationMute) {
         const gain = effectGain('master:saturation:output', state.master.saturationGainDb ?? 0);
-        bus = bus.map((signal, side) => el.mul(gain, saturator(`master:saturation:${side}`, signal, state.master.saturationDrive, state.master.saturationMix)));
+        bus = bus.map((signal, side) => el.mul(gain, saturator(`master:saturation:${side}`, signal, state.master.saturationDrive, state.master.saturationMix, state.master.saturationType)));
       }
       saturationOutput = stereoPeak(bus);
     } else if (module === 'glue') {
       glueInput = stereoPeak(bus);
-      if (state.master.glueEnabled) {
+      if (state.master.glueEnabled && !state.master.glueMute) {
         const [left, right, reduction] = glueCompressor(...bus, state.master, true);
         const gain = effectGain('master:glue:output', state.master.glueGainDb ?? 0);
         bus = [el.mul(gain, left), el.mul(gain, right)];
@@ -196,7 +246,7 @@ function buildDrumNodes(state, nativeMidi = false) {
     layers: layerNodes,
     noise: noiseNode,
     velGain,
-    effectMeters: [saturationInput, saturationOutput, glueInput, glueOutput, glueReduction]
+    effectMeters: [saturationInput, saturationOutput, glueInput, glueOutput, glueReduction, convolveInput, convolveOutput, ringModInput, ringModOutput]
   };
 }
 

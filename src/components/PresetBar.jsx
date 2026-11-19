@@ -6,6 +6,7 @@ export function PresetBar({
   libraryStatus,
   status,
   error,
+  helpEnabled = true,
   isInitialPatch = true,
   busy,
   ready,
@@ -48,17 +49,17 @@ export function PresetBar({
         <output className="lcd-status" role="status" title={error || lcdStatus}>{lcdStatus}</output>
       </div>
       <button type="button" className="topbar-button" onClick={onSave} disabled={!canSave}
-        title={selectedInfo?.available
-          ? `Replace "${selectedInfo.name}" with the current patch`
-          : 'Save the current patch as a new preset'}>
+        title={helpEnabled ? (selectedInfo?.available
+          ? 'SAVE: Click to replace the selected preset.'
+          : 'SAVE: Click to save a new preset.') : undefined}>
         SAVE
       </button>
       <button type="button" className="topbar-button" onClick={onSaveAs} disabled={!canSave}
-        title="Save the current patch and sample references as a new preset">
+        title={helpEnabled ? 'SAVE AS: Click to save a new preset.' : undefined}>
         SAVE AS
       </button>
       <button type="button" className="topbar-button topbar-icon-button" onClick={onRefresh}
-        disabled={!ready || busy} aria-label="Refresh saved presets" title="Rescan the preset folder">
+        disabled={!ready || busy} aria-label="Refresh saved presets" title={helpEnabled ? 'REFRESH PRESETS: Click to rescan.' : undefined}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6a5.5 5.5 0 1 1 0 4M3 2v4h4" /></svg>
       </button>
       <button type="button" className="topbar-button topbar-icon-button preset-delete-button"
@@ -66,7 +67,7 @@ export function PresetBar({
         aria-label="Delete the selected preset"
         title={selectedInfo?.available === false
           ? selectedInfo.error || 'Delete unavailable preset'
-          : 'Delete the selected preset'}>
+          : helpEnabled ? 'DELETE PRESET: Click to delete the selected preset.' : undefined}>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5" /></svg>
       </button>
     </div>

@@ -1,16 +1,16 @@
 import React, { useMemo } from 'react';
-import { DEFAULT_ENVELOPE_POINTS, isDefaultEnvelope } from '@dsp/parameters.js';
 import { WaveformViewer } from './WaveformViewer.jsx';
 
 export function NoiseWaveform({ noise, waveform, durationSec, previewStatus, playbackId, accent, onChange, editorResolution, onEditorResolutionChange }) {
   const noiseDuration = noise.decay + 0.016;
+  const delaySec = Math.max(0, noise.delayMs ?? 0) / 1000;
   const timeline = useMemo(() => new Float32Array(Math.max(1, Math.round(noiseDuration * 44100))), [noiseDuration]);
   const sourcePreview = waveform ? {
     waveform,
     durationSec,
     sourceStart: 0,
     sourceEnd: 1,
-    delaySec: 0,
+    delaySec,
     playbackDurationSec: noiseDuration
   } : undefined;
 
@@ -31,6 +31,7 @@ export function NoiseWaveform({ noise, waveform, durationSec, previewStatus, pla
     onTrimChange: onChange,
     snapSilence: false,
     playbackId,
+    playheadDelaySec: delaySec,
     playheadDurationSec: noiseDuration,
     playheadStartFraction: 0,
     playheadEndFraction: 1,
@@ -40,21 +41,6 @@ export function NoiseWaveform({ noise, waveform, durationSec, previewStatus, pla
   return (
     <>
       <WaveformViewer {...viewer} fitTrimmed detail={editorResolution} onDetailChange={onEditorResolutionChange} />
-      <div className="strip-actions">
-        <div className="strip-utility-actions" role="group" aria-label="Noise synth editing and controls">
-          <button type="button" className="action-btn action-btn-utility"
-            aria-label="Reset noise gain envelope" disabled={isDefaultEnvelope(noise.envelopePoints)}
-            onClick={() => onChange({ envelopePoints: DEFAULT_ENVELOPE_POINTS.map((point) => ({ ...point })) })}>RESET ENV</button>
-        </div>
-        <div className="strip-toggles" role="group" aria-label="Noise synth mute and solo">
-          <button type="button" className={`mini-btn ${noise.mute ? 'active-mute' : ''}`}
-            aria-label="Mute noise synth" aria-pressed={noise.mute}
-            onClick={() => onChange({ mute: !noise.mute })}>M</button>
-          <button type="button" className={`mini-btn ${noise.solo ? 'active-solo' : ''}`}
-            aria-label="Solo noise synth" aria-pressed={noise.solo}
-            onClick={() => onChange({ solo: !noise.solo })}>S</button>
-        </div>
-      </div>
     </>
   );
 }

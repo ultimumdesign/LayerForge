@@ -125,6 +125,25 @@ export function getSampleAreaPath(samples, sampleCount, scale, otherSamples = sa
   return getWaveformPaths({ min, max }, 0, count / sampleCount, 1 / scale).area;
 }
 
+export function getComparisonCursorRange(waveform, timeSec, durationSec, capturedSec, sampleRate, sampleCount) {
+  if (timeSec < 0 || timeSec > durationSec ||
+    (capturedSec < durationSec && timeSec >= capturedSec)) return null;
+  const indexAt = (position) => Math.floor(position + Number.EPSILON * Math.max(1, Math.abs(position)) * 4);
+  if (sampleCount > 0) {
+    const index = Math.min(sampleCount - 1, indexAt(timeSec * sampleRate));
+    const left = waveform.transient?.[index];
+    const right = (waveform.transientMax ?? waveform.transient)?.[index];
+    return Number.isFinite(left) && Number.isFinite(right)
+      ? { min: Math.min(left, right), max: Math.max(left, right) } : null;
+  }
+  const binCount = waveform.binCount ?? waveform.min.length;
+  if (!binCount || durationSec <= 0) return null;
+  const index = Math.min(binCount - 1, indexAt(timeSec / durationSec * binCount));
+  const min = waveform.min[index];
+  const max = waveform.max[index];
+  return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+}
+
 export function getTrimmedPreviewRange(trimStart, trimEnd) {
   const span = trimEnd - trimStart;
   const margin = span * 0.1;
@@ -285,6 +304,17 @@ export function getLayerPlaybackInfo(state, sampleBuffers, sampleRates) {
     });
 }
 
+export function getPlayableSourceDurationSec(state, playbackTracks) {
+  const hasSolo = state.layers.some((layer) => layer.solo) || (state.noise.enabled && state.noise.solo);
+  const noiseAudible = state.noise.enabled && !state.noise.mute && state.noise.gain > 0.0005 &&
+    (!hasSolo || state.noise.solo);
+  const noiseEnd = noiseAudible
+    ? Math.max(0, state.noise.delayMs ?? 0) / 1000 +
+      (state.noise.decay + 0.016) * (state.noise.trimEnd ?? 1)
+    : 0;
+  return Math.max(0, ...playbackTracks.map((track) => track.endTimeSec), noiseEnd);
+}
+
 export function getLayerSumPeaks(
   state,
   sampleBuffers,
@@ -326,7 +356,7 @@ export function getLayerSumPeaks(
   );
   const noiseAudible =
     state.noise.enabled && state.noise.gain > 0 && !state.noise.mute && (!hasSolo || state.noise.solo);
-  const noiseDuration = noiseAudible ? state.noise.decay + 0.016 : 0;
+  const noiseDuration = noiseAudible ? Math.max(0, state.noise.delayMs ?? 0) / 1000 + state.noise.decay + 0.016 : 0;
   const fullDuration = Math.max(durationSec, noiseDuration);
   const sampleCount = Math.ceil(fullDuration * 44100);
   const count = Math.min(barCount, sampleCount);

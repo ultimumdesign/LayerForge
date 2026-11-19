@@ -5,12 +5,15 @@ export function SystemMenu({
   isNativePlugin,
   helpEnabled,
   onToggleHelp,
+  dspInfoEnabled,
+  onToggleDspInfo,
   borderTrace,
   onCycleBorderTraceLevel,
   onCycleBorderTraceSpeed,
   initializeDisabled,
   onInitialize,
   onAbout,
+  onOpenOutputScope,
   onDiagnostics,
   diagnosticsCount
 }) {
@@ -76,6 +79,9 @@ export function SystemMenu({
           <button type="button" role="menuitemcheckbox" aria-checked={helpEnabled} onClick={run(onToggleHelp)}>
             <span>HOVER HELP</span><em>{helpEnabled ? 'ON' : 'OFF'}</em>
           </button>
+          <button type="button" role="menuitemcheckbox" aria-checked={dspInfoEnabled} onClick={run(onToggleDspInfo)}>
+            <span>DSP INFO DISPLAY</span><em>{dspInfoEnabled ? 'ON' : 'OFF'}</em>
+          </button>
           <button type="button" role="menuitem" onClick={onCycleBorderTraceLevel}
             aria-label={`Border tracing intensity: ${borderTrace.level}. Activate to change.`}>
             <span>BORDER TRACE</span><em>{borderTrace.level.toUpperCase()}</em>
@@ -85,6 +91,9 @@ export function SystemMenu({
             <span>TRACE SPEED</span><em>{borderTrace.speed.toUpperCase()}</em>
           </button>
           <hr />
+          <button type="button" role="menuitem" onClick={run(onOpenOutputScope)}>
+            <span>EXPANDED OUTPUT SCOPE</span>
+          </button>
           <button type="button" role="menuitem" disabled={initializeDisabled} onClick={run(onInitialize)}>
             <span>INITIALIZE PATCH</span>
           </button>

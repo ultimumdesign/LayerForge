@@ -1,8 +1,8 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { RotaryKnob } from './RotaryKnob.jsx';
-import { GearIcon } from './GearIcon.jsx';
-import { HelpEnabledContext } from './HelpTip.jsx';
-import { WaveformViewer } from './WaveformViewer.jsx';
+import { DspInfoScreen, HelpEnabledContext } from './HelpTip.jsx';
+import { AuditionCloseButton, HitButton } from './HitButton.jsx';
+import { PlayDelayControl, WaveformViewer } from './WaveformViewer.jsx';
 import { getLayerPreviewWaveform, getPhaseOffset, applyEnvelopeToWaveform, mergeStereoWaveform } from '../audio/waveform.js';
 import { createDefaultLayer, DEFAULT_ENVELOPE_POINTS, getSamplePhaseShift, getSampleTrimRange, isDefaultEnvelope } from '../../dsp/parameters.js';
 import { getUiTheme } from '../uiThemes.js';
@@ -21,6 +21,8 @@ export function ChannelStrip({
   onEditorResolutionChange,
   channelColors = getUiTheme().channelColors,
   playbackId,
+  triggered,
+  onHit,
   onFileDrop,
   onNativeSampleBrowse,
   onRevealSample,
@@ -39,8 +41,9 @@ export function ChannelStrip({
   const [minimized, setMinimized] = useState(false);
   const [hasMinimized, setHasMinimized] = useState(false);
   const [moreControls, setMoreControls] = useState(false);
-  const extraKeys = ['delayMs', 'hp', 'lp', 'clipHardness', 'phaseOffset'];
-  const hasVisibleExtraControls = moreControls || extraKeys.some((key) => layer[key] !== defaultLayer[key]);
+  const extraKeys = ['hp', 'lp', 'clipHardness', 'phaseOffset'];
+  const changedExtraKeys = extraKeys.filter((key) => layer[key] !== defaultLayer[key]);
+  const hasVisibleExtraControls = moreControls || changedExtraKeys.length > 0;
   const baseWaveform = useMemo(
     () => {
       const left = getLayerPreviewWaveform(samples);
@@ -61,6 +64,68 @@ export function ChannelStrip({
     : 0;
   const playbackDelaySec = Math.max(0, layer.delayMs) / 1000 +
     phase.delaySamples / (sampleRate * Math.pow(2, layer.pitch / 12));
+  const extraKnobs = [
+    {
+      key: 'hp',
+      knob: <RotaryKnob key="hp"
+        label="HPF"
+        value={layer.hp}
+        min={20}
+        max={2000}
+        defaultValue={20}
+        unit="Hz"
+        decimals={0}
+        description="High-pass cutoff; the filter is bypassed at 20 Hz."
+        onChange={(v) => onChange(index, { hp: v })}
+      />
+    },
+    {
+      key: 'lp',
+      knob: <RotaryKnob key="lp"
+        label="LPF"
+        value={layer.lp}
+        min={800}
+        max={20000}
+        defaultValue={20000}
+        unit="Hz"
+        decimals={0}
+        description="Low-pass cutoff; the filter is bypassed at 20 kHz."
+        onChange={(v) => onChange(index, { lp: v })}
+      />
+    },
+    {
+      key: 'clipHardness',
+      knob: <RotaryKnob key="clipHardness"
+        label="SHAPE"
+        value={layer.clipHardness}
+        min={0}
+        max={1}
+        defaultValue={0.25}
+        decimals={2}
+        accent="var(--theme-accent-secondary)"
+        description="Blends the channel clipper from soft saturation to hard clipping."
+        onChange={(v) => onChange(index, { clipHardness: v })}
+      />
+    },
+    {
+      key: 'phaseOffset',
+      knob: <RotaryKnob key="phaseOffset"
+        label="PHASE"
+        value={layer.phaseOffset}
+        min={-0.05}
+        max={0.05}
+        defaultValue={0}
+        decimals={4}
+        description="Advances or delays the sample for alignment; it does not invert polarity."
+        onChange={(v) => onChange(index, { phaseOffset: v })}
+      />
+    }
+  ];
+  const changedExtraKnobs = extraKnobs.filter(({ key }) => changedExtraKeys.includes(key));
+  const additionalExtraKnobs = moreControls
+    ? extraKnobs.filter(({ key }) => !changedExtraKeys.includes(key))
+    : [];
+  const hasUnmodifiedAdditionalKnobs = additionalExtraKnobs.length > 0;
   const sourcePreview = layer.loaded && samples?.length ? {
     waveform: processedWaveform,
     durationSec: processedDuration,
@@ -110,7 +175,8 @@ export function ChannelStrip({
   const sourcePath = layer.sourceLocation;
 
   return (
-    <section className={`strip strip-channel ${layer.loaded ? '' : 'is-empty'} ${layer.mute ? 'is-muted' : ''} ${minimized ? 'is-minimized' : ''} ${hasMinimized ? 'has-minimized' : ''}`} style={{ '--channel-accent': accent }}>
+    <section className={`strip strip-channel ${layer.loaded ? '' : 'is-empty'} ${layer.mute ? 'is-muted' : ''} ${minimized ? 'is-minimized' : ''} ${hasMinimized ? 'has-minimized' : ''}`} style={{ '--channel-accent': accent }}
+      data-dsp-scope={`CHANNEL ${index + 1}`}>
       <div className="channel-heading">
         <button
           type="button"
@@ -121,7 +187,8 @@ export function ChannelStrip({
           }}
           aria-label={`${minimized ? 'Restore' : 'Minimize'} channel ${index + 1}`}
           aria-expanded={!minimized}
-          title={helpEnabled ? `${minimized ? 'Restore' : 'Minimize'} channel view` : undefined}
+          data-dsp-label="CHANNEL VIEW" data-dsp-help="Collapses or restores the channel controls without changing the sound."
+          title={helpEnabled ? `CHANNEL VIEW: Click to ${minimized ? 'restore' : 'minimize'}.` : undefined}
         >
           {minimized ? '+' : '−'}
         </button>
@@ -133,6 +200,7 @@ export function ChannelStrip({
               onClick={() => onChange(index, { mute: !layer.mute })}
               aria-label={`Mute channel ${index + 1}`}
               aria-pressed={layer.mute}
+              data-dsp-label="MUTE" data-dsp-help="Silences this channel without changing its settings."
             >
               M
             </button>
@@ -141,6 +209,7 @@ export function ChannelStrip({
               onClick={() => onChange(index, { solo: !layer.solo })}
               aria-label={`Solo channel ${index + 1}`}
               aria-pressed={layer.solo}
+              data-dsp-label="SOLO" data-dsp-help="Auditions soloed channels and noise while excluding other sources."
             >
               S
             </button>
@@ -216,13 +285,11 @@ export function ChannelStrip({
           >
             <header className="waveform-editor-dialog-header">
               <strong id={`waveform-editor-title-${index}`}>CH 0{index + 1} WAVEFORM EDITOR</strong>
-                    <button
-                type="button"
-                className="waveform-editor-close"
-                onClick={() => setWaveformEditorOpen(false)}
-              >
-                CLOSE
-              </button>
+              <div className="module-settings-actions">
+                <HitButton triggered={triggered} onHit={onHit} autoFocus />
+                <AuditionCloseButton label="Close waveform editor (Enter or Escape)"
+                  onClose={() => setWaveformEditorOpen(false)} onHit={onHit} />
+              </div>
             </header>
             <WaveformViewer
               title={`CH 0${index + 1}`}
@@ -251,6 +318,11 @@ export function ChannelStrip({
               playheadDelaySec={playbackDelaySec}
               note="Drag IN/OUT to trim the full sample. Hold Ctrl while dragging trim edges to snap to silence boundaries. Drag envelope points to shape gain and segment handles to bend them."
             />
+            <div className="strip-actions waveform-editor-actions">
+              <PlayDelayControl title={`CH 0${index + 1}`} value={layer.delayMs}
+                onChange={(delayMs) => onChange(index, { delayMs })} />
+            </div>
+            <DspInfoScreen />
           </section>
         </div>
       )}
@@ -263,7 +335,8 @@ export function ChannelStrip({
               className="action-btn action-btn-utility"
               onClick={handleAutoAlignPhase}
               aria-label={`Auto-align phase for channel ${index + 1}`}
-              title={helpEnabled ? "Auto-align this layer's phase with another loaded sample to prevent phase cancellation" : undefined}
+              data-dsp-label="AUTO ALIGN" data-dsp-help="Estimates a timing offset against another loaded sample to align the layers."
+              title={helpEnabled ? 'AUTO ALIGN: Click to align this sample.' : undefined}
             >
               <svg viewBox="0 0 16 16" aria-hidden="true">
                 <circle cx="8" cy="8" r="5" />
@@ -276,7 +349,8 @@ export function ChannelStrip({
               type="button"
               className="action-btn action-btn-utility"
               aria-label={`Open CH 0${index + 1} waveform editor`}
-              title={helpEnabled ? 'Edit the waveform' : undefined}
+              data-dsp-label="WAVEFORM EDITOR" data-dsp-help="Opens the full source timeline for trim and envelope editing."
+              title={helpEnabled ? 'WAVEFORM EDITOR: Click to open.' : undefined}
               onClick={() => setWaveformEditorOpen(true)}
             >
               EDIT
@@ -286,7 +360,8 @@ export function ChannelStrip({
             type="button"
             className="action-btn action-btn-utility"
             aria-label={`CH 0${index + 1} reset gain envelope to default`}
-            title={helpEnabled ? 'Reset the gain envelope' : undefined}
+            data-dsp-label="RESET ENVELOPE" data-dsp-help="Resets the gain envelope to a flat full-level shape."
+            title={helpEnabled ? 'RESET ENVELOPE: Click to reset.' : undefined}
             disabled={isDefaultEnvelope(layer.envelopePoints)}
             onClick={() => onChange(index, { envelopePoints: DEFAULT_ENVELOPE_POINTS.map((point) => ({ ...point })) })}
           >
@@ -297,17 +372,21 @@ export function ChannelStrip({
             className="action-btn action-btn-utility"
             aria-label={`${moreControls ? 'Show only active' : 'Show all'} additional controls for channel ${index + 1}`}
             aria-expanded={moreControls}
-            aria-controls={hasVisibleExtraControls ? `channel-extra-controls-${index}` : undefined}
-            title={helpEnabled ? `${moreControls ? 'Hide default' : 'Show all'} additional controls` : undefined}
+            data-dsp-label="ADDITIONAL CONTROLS" data-dsp-help="Shows extra controls inline; changed controls stay with the main controls when collapsed."
+            aria-controls={hasVisibleExtraControls ? `channel-knobs-${index}` : undefined}
+            title={helpEnabled ? `ADDITIONAL CONTROLS: Click to ${moreControls ? 'hide default controls' : 'show all'}.` : undefined}
             onClick={() => setMoreControls((value) => !value)}
           >
-            <GearIcon />
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d={moreControls ? 'M3 10 8 5l5 5' : 'M3 6l5 5 5-5'} />
+            </svg>
           </button>
           <button
             type="button"
             className="action-btn action-btn-utility"
             aria-label={`Reset knobs for channel ${index + 1}`}
-            title={helpEnabled ? 'Reset channel knobs without changing the sample, trim or envelope' : undefined}
+            data-dsp-label="RESET KNOBS" data-dsp-help="Restores channel knob defaults without changing the sample, trim or envelope."
+            title={helpEnabled ? 'RESET KNOBS: Click to reset channel knobs.' : undefined}
             onClick={() => onResetKnobs(index)}
           >
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -315,9 +394,11 @@ export function ChannelStrip({
             </svg>
           </button>
         </div>
+        <PlayDelayControl title={`CH 0${index + 1}`} value={layer.delayMs}
+          onChange={(delayMs) => onChange(index, { delayMs })} />
       </div>
 
-      <div className="knob-grid channel-main-knobs">
+      <div className="knob-grid channel-knob-grid" id={`channel-knobs-${index}`}>
         <RotaryKnob
           label="PITCH"
           value={layer.pitch}
@@ -326,6 +407,7 @@ export function ChannelStrip({
           defaultValue={0}
           unit="st"
           decimals={1}
+          description="Changes sample playback rate and pitch in semitones."
           onChange={(v) => onChange(index, { pitch: v })}
         />
         <RotaryKnob
@@ -335,6 +417,7 @@ export function ChannelStrip({
           max={1}
           defaultValue={0}
           decimals={2}
+          description="Boosts or reduces the sample's detected transient."
           onChange={(v) => onChange(index, { attack: v })}
         />
         <RotaryKnob
@@ -344,6 +427,7 @@ export function ChannelStrip({
           max={1}
           defaultValue={0}
           decimals={2}
+          description="Boosts or reduces the sample's slower envelope."
           onChange={(v) => onChange(index, { sustain: v })}
         />
         <RotaryKnob
@@ -354,6 +438,7 @@ export function ChannelStrip({
           defaultValue={0}
           unit="dB"
           decimals={1}
+          description="Drives the channel clipper; at zero the channel clipper is bypassed."
           accent="var(--theme-accent-secondary)"
           onChange={(v) => onChange(index, { clipDrive: v })}
         />
@@ -375,65 +460,17 @@ export function ChannelStrip({
           defaultValue={1}
           decimals={2}
           accent="var(--theme-accent)"
+          description="Sets the channel level sent to the signal chain."
           onChange={(v) => onChange(index, { gain: v })}
         />
+        {changedExtraKnobs.map(({ knob }) => knob)}
+        {hasUnmodifiedAdditionalKnobs && (
+          <div className="channel-extra-controls-label" role="separator">
+            ADDITIONAL CONTROLS
+          </div>
+        )}
+        {additionalExtraKnobs.map(({ knob }) => knob)}
       </div>
-      {hasVisibleExtraControls && (
-        <div className="knob-grid channel-extra-controls" id={`channel-extra-controls-${index}`}>
-          {(moreControls || layer.delayMs !== defaultLayer.delayMs) && <RotaryKnob
-            label="PLAY DLY"
-            value={layer.delayMs}
-            min={0}
-            max={1000}
-            defaultValue={0}
-            unit="ms"
-            decimals={0}
-            accent="var(--theme-accent-tertiary)"
-            description="Playback start delay only; no feedback or repeats."
-            onChange={(v) => onChange(index, { delayMs: v })}
-          />}
-          {(moreControls || layer.hp !== defaultLayer.hp) && <RotaryKnob
-            label="HPF"
-            value={layer.hp}
-            min={20}
-            max={2000}
-            defaultValue={20}
-            unit="Hz"
-            decimals={0}
-            onChange={(v) => onChange(index, { hp: v })}
-          />}
-          {(moreControls || layer.lp !== defaultLayer.lp) && <RotaryKnob
-            label="LPF"
-            value={layer.lp}
-            min={800}
-            max={20000}
-            defaultValue={20000}
-            unit="Hz"
-            decimals={0}
-            onChange={(v) => onChange(index, { lp: v })}
-          />}
-          {(moreControls || layer.clipHardness !== defaultLayer.clipHardness) && <RotaryKnob
-            label="SHAPE"
-            value={layer.clipHardness}
-            min={0}
-            max={1}
-            defaultValue={0.25}
-            decimals={2}
-            accent="var(--theme-accent-secondary)"
-            onChange={(v) => onChange(index, { clipHardness: v })}
-          />}
-          {(moreControls || layer.phaseOffset !== defaultLayer.phaseOffset) && <RotaryKnob
-            label="PHASE"
-            value={layer.phaseOffset}
-            min={-0.05}
-            max={0.05}
-            defaultValue={0}
-            decimals={4}
-            description="Adjust phase alignment to prevent phase cancellation when layering multiple samples."
-            onChange={(v) => onChange(index, { phaseOffset: v })}
-          />}
-        </div>
-      )}
     </section>
   );
 }
